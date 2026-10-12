@@ -10,7 +10,7 @@ const SELECT_BY_COMMUNICATION_METHOD = `
     ON cc.communication_channel_id = ucm.communication_channel_id
   JOIN users u ON u.user_id = ucm.user_id
   WHERE cc.name = $1
-    AND ucm.code = $2
+    AND lower(ucm.code) = lower($2)
     AND ucm.deleted_at IS NULL
     AND cc.deleted_at IS NULL
     AND u.deleted_at IS NULL
@@ -20,6 +20,10 @@ const SELECT_BY_COMMUNICATION_METHOD = `
 /**
  * Look up the user attached to a communication method (an email address,
  * phone number, etc). Returns `null` if no matching record exists.
+ *
+ * `code` matches in any casing (`Bob@Acme.com` finds `bob@acme.com`); the
+ * stored code keeps the casing it was entered with. Normalize phone numbers
+ * before storing and before calling this.
  *
  * Returning `null` instead of throwing is deliberate: the caller (a
  * sign-in endpoint, typically) decides whether to expose user-existence

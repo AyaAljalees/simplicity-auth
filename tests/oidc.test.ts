@@ -136,6 +136,12 @@ describe('oidcHandler.complete', () => {
     expect(user).toEqual({ userId: db.ids.users.alice, userCommunicationMethodId: db.ids.ucm.alice });
   });
 
+  it('resolves the existing user when the IdP returns the email in a different casing', async () => {
+    // Entra commonly returns mixed-case addresses.
+    const user = await runFlow({ email: 'Alice@ACME.com' });
+    expect(user).toEqual({ userId: db.ids.users.alice, userCommunicationMethodId: db.ids.ucm.alice });
+  });
+
   it('throws VerificationFailedError when the id_token has no email/preferred_username', async () => {
     await expect(runFlow({})).rejects.toBeInstanceOf(VerificationFailedError);
   });

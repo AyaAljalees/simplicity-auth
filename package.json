@@ -105,7 +105,7 @@
   },
   "devDependencies": {
     "@release-it/keep-a-changelog": "^8.0.1",
-    "@smplcty/schema-flow": "^0.21.0",
+    "@smplcty/schema-flow": "^0.21.1",
     "@smplcty/twilio": "^0.1.1",
     "@testcontainers/postgresql": "^12.2.0",
     "@types/node": "^22.20.5",

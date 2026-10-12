@@ -32,7 +32,10 @@ columns:
     nullable: true
 indexes:
   # Partial so a (channel, code) can be reused after the row is soft-deleted.
-  - columns: [communication_channel_id, code]
+  # Keyed on lower(code): codes are stored as entered but matched in any casing
+  # (findUserByCommunicationMethod), so two live codes differing only by case
+  # would make that lookup ambiguous. This index also backs the lookup.
+  - columns: [communication_channel_id, { expression: lower(code) }]
     unique: true
     where: 'deleted_at IS NULL'
     name: user_communication_methods_channel_code_key

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sign-in now finds a user's email address in any casing.** Code sign-in and
+  OIDC/SSO matching used to compare emails exactly, so `Bob@Acme.com` did not
+  reach the user stored as `bob@acme.com`. This mostly affected SSO users,
+  because Microsoft Entra often returns mixed-case addresses. Addresses are
+  still stored and shown exactly as entered.
+- **Two users can no longer hold the same email address in different
+  casings.** Before, an admin could add `Bob@Acme.com` next to an existing
+  `bob@acme.com`, and which account a person reached depended on how they
+  typed their address. Adding a contact method that differs from a live one
+  only by case now fails with the same unique violation, on the same
+  constraint name (`user_communication_methods_channel_code_key`), as an exact
+  duplicate. This applies to every channel, not just email. Phone numbers are
+  unaffected as long as you normalize them before storing.
+
+  **Upgrading an existing database:** migrate with `@smplcty/schema-flow`
+  0.21.1 or newer. It swaps in the new index without `--allow-destructive`
+  and never leaves the table without one. Older versions skip the change
+  unless you pass the flag, and can leave a broken index behind if it fails.
+
+  The migration fails if two live contact methods already differ only by
+  case. If it does, the old index stays in place and the error names the
+  duplicated address. Resolve each pair (soft-delete or edit one of them)
+  and run it again. To find them before upgrading:
+
+  ```sql
+  SELECT communication_channel_id, lower(code), count(*)
+  FROM user_communication_methods
+  WHERE deleted_at IS NULL
+  GROUP BY 1, 2
+  HAVING count(*) > 1;
+  ```
+
+  (#19)
+
 ## [9.0.1] - 2026-10-06
 
 ### Changed
