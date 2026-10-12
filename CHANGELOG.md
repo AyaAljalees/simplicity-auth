@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Closed a gap in the 9.0.0 `search_path` hardening.** The seven
+  `SECURITY DEFINER` functions behind the shipped RLS (`auth_has_role`,
+  `auth_can_admin_user`, `auth_in_tenant`, `auth_all_tenants`,
+  `auth_tenant_ids`, `resolve_session`, `auth_create_user`) pinned
+  `search_path` to `pg_catalog, public`. With `pg_temp` left out, Postgres
+  searches the caller's temporary tables _first_. Someone able to run SQL as
+  your app's database role, through SQL injection or leaked credentials, could
+  create a temporary `user_roles` table and make these functions grant them
+  any role in every tenant. The 9.0.0 notes said the pin closed this kind of
+  attack; it did not fully. The pin is now `pg_catalog, public, pg_temp`,
+  which puts temporary tables last, behind the real ones. Normal behavior is
+  unchanged, and the next migration applies it with no extra flags. (#16)
+
 ### Fixed
 
 - **Sign-in now finds a user's email address in any casing.** Code sign-in and

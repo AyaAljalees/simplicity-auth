@@ -4,7 +4,7 @@ volatility: stable
 parallel: restricted
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # True when the current actor holds ANY role reaching `target_tenant_id`
 # (directly or via a wildcard assignment). Used where visibility is granted to
 # every member of a tenant regardless of which role they hold — e.g. a tenant

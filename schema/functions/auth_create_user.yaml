@@ -2,7 +2,7 @@ name: auth_create_user
 language: plpgsql
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # The authority-checked, atomic way for an app_rls request (a security admin) to
 # provision a human user. Raw INSERT on `users` is closed under RLS — a user
 # must never exist without the roles and contact methods that make it usable,

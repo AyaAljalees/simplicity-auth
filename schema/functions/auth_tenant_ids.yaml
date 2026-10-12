@@ -4,7 +4,7 @@ volatility: stable
 parallel: restricted
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # The set of tenant ids the current actor holds a live, tenant-scoped role in
 # (wildcard grants — user_roles.tenant_id IS NULL — are NOT in this set; test
 # them with auth_all_tenants()). Returns nothing when there is no actor.

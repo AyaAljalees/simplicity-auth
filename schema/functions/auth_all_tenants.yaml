@@ -4,7 +4,7 @@ volatility: stable
 parallel: restricted
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # True when the current actor holds any live wildcard role — a user_roles row
 # with tenant_id IS NULL, which reaches every tenant (surfaced elsewhere as the
 # app.all_tenants GUC). The all-access companion to auth_tenant_ids: a wildcard

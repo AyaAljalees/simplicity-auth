@@ -3,7 +3,7 @@ language: plpgsql
 volatility: stable
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # A PURE resolver. Given a session token hash, it returns the session's
 # user, its expiry, the user's selectable roles (split from privileges by
 # roles.is_privilege), and the user's privileges. It takes NO role

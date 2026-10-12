@@ -4,7 +4,7 @@ volatility: stable
 parallel: restricted
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # True when the current request actor holds `role_name` with authority over
 # `target_tenant_id`. A wildcard assignment (user_roles.tenant_id IS NULL)
 # reaches every tenant, so it always qualifies. Passing a NULL target means

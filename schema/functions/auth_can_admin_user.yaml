@@ -4,7 +4,7 @@ volatility: stable
 parallel: restricted
 security: definer
 set:
-  search_path: pg_catalog, public
+  search_path: pg_catalog, public, pg_temp
 # True when the current actor is a security admin for at least one tenant the
 # target user holds a role in — i.e. they share a tenant where the actor holds
 # `security`. This is the "a security admin manages the users in their tenants"
