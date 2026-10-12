@@ -1,6 +1,6 @@
 {
   "name": "@smplcty/auth",
-  "version": "9.0.1",
+  "version": "9.0.2",
   "description": "Robust, type-safe session and role-based authentication primitives for PostgreSQL apps using Row-Level Security.",
   "license": "MIT",
   "type": "module",
