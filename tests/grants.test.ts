@@ -21,6 +21,9 @@ const EXPECTED: Record<string, { rls: string[]; privileged: string[] }> = {
   user_roles: { rls: ['SELECT', 'INSERT', 'UPDATE'], privileged: ['SELECT', 'INSERT', 'UPDATE'] },
   user_communication_methods: { rls: ['SELECT', 'INSERT', 'UPDATE'], privileged: ['SELECT', 'INSERT', 'UPDATE'] },
   auth_domains: { rls: ['SELECT', 'INSERT', 'UPDATE'], privileged: ['SELECT', 'INSERT', 'UPDATE'] },
+  // Column-scoped writes only (see email-domains.test.ts), so no table-level
+  // INSERT/UPDATE: the verified state is out of app_rls's reach.
+  tenant_email_domains: { rls: ['SELECT'], privileged: ['SELECT'] },
   // users — request role reads + RLS-gated UPDATE; INSERT is privileged-only
   // (OIDC provisioning) since app_rls provisions via auth_create_user (DEFINER).
   users: { rls: ['SELECT', 'UPDATE'], privileged: ['SELECT', 'INSERT', 'UPDATE'] },

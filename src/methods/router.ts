@@ -1,19 +1,20 @@
 import { InvalidInputError } from '../errors.js';
+import { emailDomainOf, ssoRequiredDomain, ssoRequiredDomainForUser } from '../internal/email-domain.js';
 import type { Queryable } from '../types.js';
-import { OtpNotAllowedError } from './errors.js';
-import type { AuthDomain, MethodRouter, MethodRouterOptions, ResolvedUser, SignInOptions } from './types.js';
+import { OtpNotAllowedError, SsoRequiredError } from './errors.js';
+import type {
+  AuthDomain,
+  MethodHandler,
+  MethodRouter,
+  MethodRouterOptions,
+  ResolvedUser,
+  SignInOptions,
+} from './types.js';
 
 const SELECT_TENANT_BY_SLUG = `
-  SELECT tenant_id AS "tenantId", allow_otp AS "allowOtp"
+  SELECT tenant_id AS "tenantId"
   FROM tenants
   WHERE slug = $1 AND deleted_at IS NULL
-  LIMIT 1
-`;
-
-const SELECT_ALLOW_OTP = `
-  SELECT allow_otp AS "allowOtp"
-  FROM tenants
-  WHERE tenant_id = $1 AND deleted_at IS NULL
   LIMIT 1
 `;
 
@@ -31,13 +32,14 @@ const SELECT_AUTH_DOMAINS_BY_TENANT = `
 
 interface TenantRow {
   tenantId: number;
-  allowOtp: boolean;
 }
 
 /**
  * Build the tenant-centric sign-in router: **discovery** (`signInOptions`) and
- * the **user-bound OTP path** (`initiateOtp`/`completeOtp`, gated by the
- * tenant's `allow_otp`, enforced here — not just in the UI).
+ * the **user-bound OTP path** (`initiateOtp`/`completeOtp`). Code sign-in is
+ * open to everyone except addresses at a verified email domain that requires
+ * SSO (`tenant_email_domains.sso_required`) — refused here, on every
+ * sub-domain, not just hidden in the UI.
  *
  * OIDC is intentionally not routed here: it has a richer `authorize`/`callback`
  * shape (PKCE + login-state) handled by `@smplcty/auth/oidc`. Resolve the
@@ -54,19 +56,9 @@ export function createMethodRouter(options: MethodRouterOptions): MethodRouter {
   const { otpHandler } = options;
   const q = options.db as Queryable;
 
-  async function assertOtpAllowed(tenantId: number): Promise<void> {
-    if (!Number.isInteger(tenantId) || tenantId <= 0) {
-      throw new InvalidInputError('tenantId must be a positive integer');
-    }
-    if (!otpHandler) {
-      throw new OtpNotAllowedError(tenantId, 'No OTP handler is configured');
-    }
-    const { rows } = await q.query<{ allowOtp: boolean }>(SELECT_ALLOW_OTP, [tenantId]);
-    const row = rows[0];
-    // Unknown tenant or allow_otp=false both deny — fail closed.
-    if (!row || row.allowOtp !== true) {
-      throw new OtpNotAllowedError(tenantId);
-    }
+  function requireOtpHandler(): MethodHandler {
+    if (!otpHandler) throw new OtpNotAllowedError('No OTP handler is configured');
+    return otpHandler;
   }
 
   return {
@@ -88,27 +80,35 @@ export function createMethodRouter(options: MethodRouterOptions): MethodRouter {
           authDomainId: Number(d.authDomainId),
           tenantId: Number(d.tenantId),
         })),
-        otpAllowed: tenant.allowOtp === true && !!otpHandler,
+        otpAllowed: !!otpHandler,
       };
     },
 
-    async initiateOtp({ tenantId, identifier }) {
+    async initiateOtp({ identifier }) {
       if (typeof identifier !== 'string' || identifier.length === 0) {
         throw new InvalidInputError('identifier must be a non-empty string');
       }
-      await assertOtpAllowed(tenantId);
-      return otpHandler!.initiate({ db: options.db, identifier });
+      const handler = requireOtpHandler();
+      // Don't send a code to an address that could never use it.
+      const domain = emailDomainOf(identifier);
+      const required = domain ? await ssoRequiredDomain(q, [domain]) : null;
+      if (required) throw new SsoRequiredError(required);
+      return handler.initiate({ db: options.db, identifier });
     },
 
-    async completeOtp({ tenantId, identifier, credential }): Promise<ResolvedUser> {
+    async completeOtp({ identifier, credential }): Promise<ResolvedUser> {
       if (typeof identifier !== 'string' || identifier.length === 0) {
         throw new InvalidInputError('identifier must be a non-empty string');
       }
       if (typeof credential !== 'string' || credential.length === 0) {
         throw new InvalidInputError('credential must be a non-empty string');
       }
-      await assertOtpAllowed(tenantId);
-      return otpHandler!.complete({ db: options.db, identifier, credential });
+      const user = await requireOtpHandler().complete({ db: options.db, identifier, credential });
+      // Checked on the resolved user, not just the identifier: someone whose
+      // email is at an SSO-required domain can't sign in by phone either.
+      const required = await ssoRequiredDomainForUser(q, user.userId);
+      if (required) throw new SsoRequiredError(required);
+      return user;
     },
   };
 }

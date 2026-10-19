@@ -55,6 +55,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'methods/overview' },
             { label: 'OIDC', slug: 'methods/oidc' },
+            { label: 'Email domains', slug: 'methods/email-domains' },
             { label: 'Developer OTP', slug: 'methods/dev-otp' },
           ],
         },

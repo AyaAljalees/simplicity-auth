@@ -14,6 +14,11 @@ description: The guarantees @smplcty/auth makes.
   (`revokeTenantSessions` spares NULL-wildcard members). Role/privilege changes
   apply on the next request because they're resolved per request, not baked into
   the token.
+- **A tenant's IdP vouches only for domains its tenant owns** — the OIDC callback
+  refuses an address whose domain the tenant hasn't verified through DNS, before
+  any lookup or provisioning. Tenant admins can't mark a domain verified: column
+  grants keep `verified_at` and the per-row token out of `app_rls`'s reach.
+  See [Email domains](/simplicity-auth/methods/email-domains/).
 - **OIDC verification is delegated to `oauth4webapi`** (the spec-complete engine,
   using JWKS); auth core has no `oauth4webapi`/Twilio dependency — method
   handlers are opt-in subpaths with optional peers.

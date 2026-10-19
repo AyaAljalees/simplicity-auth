@@ -6,6 +6,7 @@ import { verifyLoginState } from '../src/http/cookies.js';
 import { oidcHandler } from '../src/methods/oidc/index.js';
 import { VerificationFailedError } from '../src/index.js';
 import type { MethodHandler } from '../src/index.js';
+import { seedVerifiedDomain } from './helpers/email-domains.js';
 import { startTestDb, type TestDb } from './helpers/test-db.js';
 
 let db: TestDb;
@@ -80,18 +81,18 @@ describe('createAuthHandlers — sign-in options', () => {
   it('lists a tenant’s OIDC IdPs and whether OTP is offered', async () => {
     const handlers = createAuthHandlers(makeConfig());
 
-    // acme: two IdPs, allow_otp=false → SSO-only.
+    // acme: two IdPs; code sign-in is offered too (SSO is enforced per email domain).
     const acme = await handlers.signInOptions(req('GET', 'https://app.test/auth/sign-in/options', { slug: 'acme' }));
     expect(acme.status).toBe(200);
     const acmeBody = (await acme.json()) as OptionsBody;
     expect(acmeBody.tenantId).toBe(db.ids.tenants.acme);
-    expect(acmeBody.otpAllowed).toBe(false);
+    expect(acmeBody.otpAllowed).toBe(true);
     expect(acmeBody.authDomains).toHaveLength(2);
     expect(acmeBody.authDomains.map((d) => d.displayName).sort()).toEqual(['Google', 'Microsoft']);
     // integration_params (issuer/clientId) are not leaked to the sign-in UI.
     expect(acmeBody.authDomains[0]).not.toHaveProperty('integrationParams');
 
-    // initech: no IdP, allow_otp=true + handler present → OTP offered.
+    // initech: no IdP, handler present → OTP offered.
     const initech = await handlers.signInOptions(
       req('GET', 'https://app.test/auth/sign-in/options', { slug: 'initech' }),
     );
@@ -158,7 +159,7 @@ describe('createAuthHandlers — OTP', () => {
     expect(((await ok.json()) as { returnTo: string }).returnTo).toBe('/dashboard');
   });
 
-  it('rejects a bad credential (401) and OTP on an SSO-only tenant (403)', async () => {
+  it('rejects a bad credential (401) and OTP for an address at an SSO-required domain (403)', async () => {
     const handlers = createAuthHandlers(makeConfig());
 
     const bad = await handlers.otpComplete(
@@ -169,11 +170,13 @@ describe('createAuthHandlers — OTP', () => {
     );
     expect(bad.status).toBe(401);
 
-    // acme has allow_otp=false — enforced server-side, not just in the UI.
+    // acme.com requires SSO — refused server-side, on any sub-domain.
+    await seedVerifiedDomain(db, db.ids.tenants.acme, 'acme.com', { ssoRequired: true });
     const ssoOnly = await handlers.otpInitiate(
-      req('POST', 'https://app.test/auth/otp/initiate', { slug: 'acme', body: { identifier: 'x@acme.com' } }),
+      req('POST', 'https://app.test/auth/otp/initiate', { slug: 'globex', body: { identifier: 'x@acme.com' } }),
     );
     expect(ssoOnly.status).toBe(403);
+    expect(await ssoOnly.json()).toMatchObject({ code: 'SSO_REQUIRED' });
   });
 });
 
@@ -235,6 +238,8 @@ describe('createAuthHandlers — OIDC end-to-end', () => {
     } finally {
       client.release();
     }
+    // Globex's IdP may vouch for globex.com addresses.
+    await seedVerifiedDomain(db, db.ids.tenants.globex, 'globex.com');
   });
 
   function configWithOidc(): AuthHttpConfig {

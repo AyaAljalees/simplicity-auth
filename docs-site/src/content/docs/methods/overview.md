@@ -31,8 +31,9 @@ const opts = await router.signInOptions({ tenantSlug: 'acme' });
 ## Two paths
 
 - **OTP / dev-OTP** (user-bound) goes through the **router**: `initiateOtp` /
-  `completeOtp`, **gated by the tenant's `allow_otp`** flag, enforced in the
-  router (not just hidden in the UI) so an SSO-only tenant can't be bypassed.
+  `completeOtp`, open on every tenant except for addresses at a verified email
+  domain that requires SSO, which the router refuses on every sub-domain (see
+  [Email domains](/simplicity-auth/methods/email-domains/)).
 - **OIDC** (org-bound) is driven by a **dedicated handler** —
   [`@smplcty/auth/oidc`](/simplicity-auth/methods/oidc/) on `oauth4webapi` — whose
   `initiate`/`complete` shape (PKCE + login-state) is richer than the OTP
@@ -40,8 +41,8 @@ const opts = await router.signInOptions({ tenantSlug: 'acme' });
 
 ```ts
 // OTP (only when opts.otpAllowed):
-await router.initiateOtp({ tenantId: opts.tenantId, identifier: phone });
-const user = await router.completeOtp({ tenantId: opts.tenantId, identifier: phone, credential: code });
+await router.initiateOtp({ identifier: phone });
+const user = await router.completeOtp({ identifier: phone, credential: code });
 
 // OIDC — user picked an IdP from opts.authDomains:
 const { redirectUrl, loginState } = await oidc.initiate(authDomain);

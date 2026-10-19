@@ -10,7 +10,12 @@ import {
   SessionExpiredError,
   SessionNotFoundError,
 } from '../errors.js';
-import { OtpNotAllowedError, VerificationFailedError } from '../methods/errors.js';
+import {
+  EmailDomainNotVerifiedError,
+  OtpNotAllowedError,
+  SsoRequiredError,
+  VerificationFailedError,
+} from '../methods/errors.js';
 import type { AuthDomain, ResolvedUser } from '../methods/types.js';
 import type { OidcParams } from '../methods/oidc/index.js';
 import type { SessionContext } from '../types.js';
@@ -102,6 +107,10 @@ function requireString(body: Record<string, unknown>, key: string): string {
 function toErrorResponse(err: unknown): Response {
   if (err instanceof InvalidInputError) return json({ error: err.message, code: err.code }, 400);
   if (err instanceof OtpNotAllowedError) return json({ error: 'OTP sign-in is not allowed', code: err.code }, 403);
+  if (err instanceof SsoRequiredError) return json({ error: 'Sign in with your organization', code: err.code }, 403);
+  if (err instanceof EmailDomainNotVerifiedError) {
+    return json({ error: 'This organization has not verified that email domain', code: err.code }, 403);
+  }
   if (err instanceof VerificationFailedError) return json({ error: 'Verification failed', code: err.code }, 401);
   if (err instanceof RoleNotHeldError) return json({ error: 'Role not held', code: err.code }, 403);
   if (err instanceof SessionExpiredError) return json({ error: 'Session expired', code: err.code }, 401);
@@ -187,11 +196,11 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
 
     async otpInitiate(request) {
       try {
-        const tenantId = await resolveTenantId(request);
-        if (tenantId === null) return json({ error: 'unknown tenant' }, 404);
+        // Sign-in happens on a tenant's sub-domain; an unknown one is a 404.
+        if ((await resolveTenantId(request)) === null) return json({ error: 'unknown tenant' }, 404);
         const body = await readJson(request);
         const identifier = requireString(body, 'identifier');
-        const result = await router.initiateOtp({ tenantId, identifier });
+        const result = await router.initiateOtp({ identifier });
         return json(result);
       } catch (err) {
         return toErrorResponse(err);
@@ -200,12 +209,11 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
 
     async otpComplete(request) {
       try {
-        const tenantId = await resolveTenantId(request);
-        if (tenantId === null) return json({ error: 'unknown tenant' }, 404);
+        if ((await resolveTenantId(request)) === null) return json({ error: 'unknown tenant' }, 404);
         const body = await readJson(request);
         const identifier = requireString(body, 'identifier');
         const credential = requireString(body, 'credential');
-        const user = await router.completeOtp({ tenantId, identifier, credential });
+        const user = await router.completeOtp({ identifier, credential });
         const cookie = await mintSessionCookie(request, user);
         const returnTo = sanitizeReturnTo(typeof body.returnTo === 'string' ? body.returnTo : undefined);
         const res = json({ ok: true, returnTo: returnTo ?? config.returnToDefault ?? '/' });

@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A tenant's single sign-on can no longer be used to sign in as someone
+  else's user.** Tenant admins configure their own identity provider, and an
+  identity provider can claim any email address. Before, a tenant admin could
+  point their sign-on at a provider they run, add any address to it, including
+  a global admin's, and sign in as that user, reaching every tenant that user
+  could reach. Now a tenant's sign-on only signs in addresses at email domains
+  that tenant has **verified**, proven by publishing a DNS record. Any other
+  address is refused before the user is looked up or created. (#21)
+
+  **Breaking:** existing sign-on stops working until each tenant has verified
+  its email domains. Before upgrading, verify the domains your customers
+  already use. A global admin can do that without DNS, through the privileged
+  database connection; see the Email domains guide.
+
+- **"Sign in with your organization" can now be enforced.** A verified email
+  domain can require SSO. Code sign-in is then refused for every address at
+  that domain, on every sub-domain, and by phone for those users too. Before,
+  a tenant's "SSO only" setting covered only its own sub-domain: its users could
+  request a code on another tenant's sub-domain and sign in anyway. People with
+  addresses at other domains, such as support staff or partners, are
+  unaffected.
+
+### Added
+
+- **Email domain verification** (`@smplcty/auth/email-domains`). Tenants claim
+  email domains in the new `tenant_email_domains` table and prove ownership with
+  a DNS TXT record. You choose the record's name and value, so customers see
+  your product's name, not this library's. Tenant admins can claim a domain,
+  require SSO on it, or remove it, but can't mark it verified.
+- New errors: `EmailDomainNotVerifiedError` and `SsoRequiredError`. The HTTP
+  handlers answer both with `403`.
+
+### Changed
+
+- **Code sign-in is offered on every tenant.** Whether a user may sign in by
+  code now depends on their email domain, not on the sub-domain they're on.
+  `signInOptions().otpAllowed` is true whenever an OTP handler is configured.
+- **`router.initiateOtp` and `router.completeOtp` no longer take `tenantId`.**
+  Drop it from your calls. The HTTP handlers still answer `404` on an unknown
+  tenant's sub-domain.
+- **`OtpNotAllowedError`** now means only that no OTP handler is configured. It
+  no longer carries a `tenantId`.
+
+### Removed
+
+- **`tenants.allow_otp`.** It switched code sign-in off on a tenant's own
+  sub-domain for everyone, which also locked out support staff and partners,
+  and it missed that tenant's users on every other sub-domain. Require SSO on
+  the tenant's verified email domain instead.
+
+  **Upgrading:** dropping the column is destructive. Run
+  `schema-flow run --stage before-deploy` before deploying the new code, which
+  adds the new table and holds the drop back. Then run `--stage after-deploy`
+  once every service runs the new code, so nothing still reads the column when
+  it goes. To keep a tenant's "SSO only" behavior, verify its email domain and
+  set `sso_required` before upgrading.
+
 ## [9.0.2] - 2026-10-12
 
 ### Security

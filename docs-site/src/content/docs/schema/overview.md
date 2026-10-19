@@ -16,12 +16,13 @@ and writes only its own domain.
 @smplcty/auth/schema/
 ├── tables/                           # grants are per-table and tiered (see Grants)
 │   ├── users.yaml                    # + audit, RLS; app_rls SELECT/UPDATE, app_privileged INSERT; seeds app-init
-│   ├── tenants.yaml                  # + audit, RLS; app_rls SELECT/INSERT/UPDATE; slug, allow_otp
+│   ├── tenants.yaml                  # + audit, RLS; app_rls SELECT/INSERT/UPDATE; slug
 │   ├── roles.yaml                    # + audit; app_rls SELECT (reference); seeds user/settings/security
 │   ├── user_roles.yaml               # + audit, RLS; app_rls SELECT/INSERT/UPDATE; tenant_id NULL = all tenants
 │   ├── communication_channels.yaml   # + audit; app_rls SELECT (reference)
 │   ├── user_communication_methods.yaml  # + audit, RLS; app_rls SELECT/INSERT/UPDATE
 │   ├── auth_domains.yaml             # + audit, RLS; app_rls SELECT/INSERT/UPDATE; tenant's IdP(s)
+│   ├── tenant_email_domains.yaml     # + audit, RLS; app_rls SELECT + column-scoped writes; verified_at app_privileged only
 │   ├── sessions.yaml                 # credential — app_privileged only; PK = token hash
 │   └── dev_otp_enrollments.yaml      # credential (TOTP secrets) — app_privileged only
 ├── functions/

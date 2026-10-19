@@ -67,8 +67,8 @@ export interface MethodHandler {
 export interface MethodRouterOptions {
   /** Used to look up tenants and their `auth_domains`. */
   db: Queryable;
-  /** The user-bound OTP handler (e.g. a `TwilioVerifyHandler`). Offered only
-   *  when the tenant's `allow_otp` is true; omit it for an SSO-only product. */
+  /** The user-bound OTP handler (e.g. a `TwilioVerifyHandler`). Omit it for an
+   *  SSO-only product. */
   otpHandler?: MethodHandler;
 }
 
@@ -84,7 +84,8 @@ export interface SignInOptions {
    *  This list is discovery ("here are your IdPs"), not a guarantee every row is
    *  startable. */
   readonly authDomains: readonly AuthDomain[];
-  /** Whether to offer OTP: the tenant's `allow_otp` AND an `otpHandler` is set. */
+  /** Whether to offer OTP: an `otpHandler` is configured. (Addresses at an
+   *  SSO-required verified domain are still refused, per address.) */
   readonly otpAllowed: boolean;
 }
 
@@ -98,10 +99,12 @@ export interface MethodRouter {
   /** The sign-in methods for the tenant owning `tenantSlug`, or null if no
    *  such (live) tenant. */
   signInOptions(input: { tenantSlug: string }): Promise<SignInOptions | null>;
-  /** User-bound (OTP) phase 1. Throws {@link OtpNotAllowedError} when the
-   *  tenant disallows OTP. */
-  initiateOtp(input: { tenantId: number; identifier: string }): Promise<MethodInitiateResult>;
-  /** User-bound (OTP) phase 2. Throws {@link OtpNotAllowedError} when the
-   *  tenant disallows OTP. */
-  completeOtp(input: { tenantId: number; identifier: string; credential: string }): Promise<ResolvedUser>;
+  /** User-bound (OTP) phase 1. Throws {@link OtpNotAllowedError} when no OTP
+   *  handler is configured, {@link SsoRequiredError} for an address at an
+   *  SSO-required verified domain. */
+  initiateOtp(input: { identifier: string }): Promise<MethodInitiateResult>;
+  /** User-bound (OTP) phase 2. Throws {@link OtpNotAllowedError} when no OTP
+   *  handler is configured, {@link SsoRequiredError} when the signed-in user has
+   *  an address at an SSO-required verified domain. */
+  completeOtp(input: { identifier: string; credential: string }): Promise<ResolvedUser>;
 }

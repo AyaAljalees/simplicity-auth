@@ -24,13 +24,13 @@
 -- created_by/updated_by on every audited insert.
 
 -- Tenants exercise the three sign-in shapes:
---   acme    — two OIDC IdPs, SSO-only (allow_otp=false) → chooser
---   globex  — one OIDC IdP, OTP also allowed            → auto-redirect
---   initech — no IdP                                    → OTP only
-INSERT INTO tenants (name, slug, allow_otp) VALUES
-  ('acme', 'acme', false),
-  ('globex', 'globex', true),
-  ('initech', 'initech', true)
+--   acme    — two OIDC IdPs → chooser
+--   globex  — one OIDC IdP  → auto-redirect
+--   initech — no IdP        → OTP only
+INSERT INTO tenants (name, slug) VALUES
+  ('acme', 'acme'),
+  ('globex', 'globex'),
+  ('initech', 'initech')
 ON CONFLICT DO NOTHING;
 
 -- communication_channels ('email', 'phone') are seeded by the canonical

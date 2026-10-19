@@ -109,9 +109,10 @@ fall through.
 
 The chooser logic the screen renders from `sign-in/options`: **0 IdPs** → OTP
 form only; **1 IdP** → a single button (or auto-start); **N IdPs** → one button
-per IdP. The OTP form shows only when `otpAllowed` is true — and that flag is
-**enforced server-side** in the OTP endpoints too, so an SSO-only tenant can't
-be bypassed by a crafted request.
+per IdP. The OTP form shows when `otpAllowed` is true (an OTP handler is
+configured). Addresses at a verified email domain that requires SSO are
+**refused server-side** in the OTP endpoints, on every sub-domain, so a crafted
+request can't bypass it. See [Email domains](/simplicity-auth/methods/email-domains/).
 
 ## Cookies
 
@@ -183,7 +184,8 @@ const data = await withRequestSession(request, config, async (client, ctx) => {
   `returnToDefault`.
 - **Signed login-state** — HMAC-SHA256, constant-time verify, freshness-checked;
   a tampered or stale cookie is rejected (the callback returns `400`).
-- **`allow_otp` enforced server-side**, not just hidden in the UI.
+- **SSO-required email domains enforced server-side**, on every sub-domain, not
+  just hidden in the UI.
 - **Cookies** are `HttpOnly` + `Secure` + `SameSite=Lax`; the session token is a
   256-bit opaque value whose hash is all that's stored.
 - **Error mapping is opaque** — handlers map known auth errors to status codes

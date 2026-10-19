@@ -17,9 +17,9 @@ function stubHandler(): MethodHandler & { initiate: ReturnType<typeof vi.fn>; co
 }
 
 // Fixture (see seed-test-data.sql):
-//   acme    (slug 'acme')    allow_otp=false  → IdPs Microsoft + Google
-//   globex  (slug 'globex')  allow_otp=true   → IdP Okta
-//   initech (slug 'initech') allow_otp=true   → no IdP
+//   acme    (slug 'acme')    → IdPs Microsoft + Google
+//   globex  (slug 'globex')  → IdP Okta
+//   initech (slug 'initech') → no IdP
 describe('createMethodRouter — discovery (signInOptions)', () => {
   let db: TestDb;
   beforeAll(async () => {
@@ -30,12 +30,13 @@ describe('createMethodRouter — discovery (signInOptions)', () => {
     await db.shutdown();
   });
 
-  it('multi-IdP, SSO-only tenant → all IdPs, OTP not allowed', async () => {
+  it('multi-IdP tenant → all IdPs, OTP offered alongside', async () => {
     const router = createMethodRouter({ db: db.pool, otpHandler: stubHandler() });
     const opts = await router.signInOptions({ tenantSlug: 'acme' });
     expect(opts?.tenantId).toBe(db.ids.tenants.acme);
     expect(opts?.authDomains.map((d) => d.displayName).sort()).toEqual(['Google', 'Microsoft']);
-    expect(opts?.otpAllowed).toBe(false); // allow_otp=false
+    // Code sign-in is offered on every tenant; SSO is enforced per email domain.
+    expect(opts?.otpAllowed).toBe(true);
   });
 
   it('single-IdP tenant with OTP allowed → one IdP, OTP allowed', async () => {
@@ -66,7 +67,7 @@ describe('createMethodRouter — discovery (signInOptions)', () => {
   });
 });
 
-describe('createMethodRouter — OTP gating', () => {
+describe('createMethodRouter — OTP', () => {
   let db: TestDb;
   beforeAll(async () => {
     db = await startTestDb();
@@ -76,49 +77,25 @@ describe('createMethodRouter — OTP gating', () => {
     await db.shutdown();
   });
 
-  it('allows OTP for a tenant with allow_otp=true', async () => {
+  it('runs both OTP phases through the handler', async () => {
     const otp = stubHandler();
     const router = createMethodRouter({ db: db.pool, otpHandler: otp });
-    await router.initiateOtp({ tenantId: db.ids.tenants.globex, identifier: 'a@b.com' }); // globex
+    await router.initiateOtp({ identifier: 'a@b.com' }); // globex
     expect(otp.initiate).toHaveBeenCalledOnce();
-    expect(
-      await router.completeOtp({ tenantId: db.ids.tenants.globex, identifier: 'a@b.com', credential: '123' }),
-    ).toEqual(stubUser);
-  });
-
-  it('refuses OTP for an SSO-only tenant (allow_otp=false), in both phases', async () => {
-    const router = createMethodRouter({ db: db.pool, otpHandler: stubHandler() });
-    await expect(router.initiateOtp({ tenantId: db.ids.tenants.acme, identifier: 'a@b.com' })).rejects.toBeInstanceOf(
-      OtpNotAllowedError,
-    );
-    await expect(
-      router.completeOtp({ tenantId: db.ids.tenants.acme, identifier: 'a@b.com', credential: '123' }),
-    ).rejects.toBeInstanceOf(OtpNotAllowedError);
+    expect(await router.completeOtp({ identifier: 'a@b.com', credential: '123' })).toEqual(stubUser);
   });
 
   it('refuses OTP when no otpHandler is configured', async () => {
     const router = createMethodRouter({ db: db.pool });
-    await expect(router.initiateOtp({ tenantId: db.ids.tenants.globex, identifier: 'a@b.com' })).rejects.toBeInstanceOf(
-      OtpNotAllowedError,
-    );
-  });
-
-  it('fails closed for an unknown tenant', async () => {
-    const router = createMethodRouter({ db: db.pool, otpHandler: stubHandler() });
-    // 99999: an id deliberately matching no seeded tenant.
-    await expect(router.initiateOtp({ tenantId: 99999, identifier: 'a@b.com' })).rejects.toBeInstanceOf(
-      OtpNotAllowedError,
-    );
+    await expect(router.initiateOtp({ identifier: 'a@b.com' })).rejects.toBeInstanceOf(OtpNotAllowedError);
   });
 
   it('throws InvalidInputError on bad inputs', async () => {
     const router = createMethodRouter({ db: db.pool, otpHandler: stubHandler() });
-    await expect(router.initiateOtp({ tenantId: db.ids.tenants.globex, identifier: '' })).rejects.toBeInstanceOf(
+    await expect(router.initiateOtp({ identifier: '' })).rejects.toBeInstanceOf(InvalidInputError);
+    await expect(router.completeOtp({ identifier: 'a@b.com', credential: '' })).rejects.toBeInstanceOf(
       InvalidInputError,
     );
-    await expect(
-      router.completeOtp({ tenantId: db.ids.tenants.globex, identifier: 'a@b.com', credential: '' }),
-    ).rejects.toBeInstanceOf(InvalidInputError);
   });
 });
 
@@ -139,14 +116,13 @@ describe('twilioVerifyHandler via router.completeOtp', () => {
     };
   }
 
-  it('resolves the user on an approved code (tenant allows OTP)', async () => {
+  it('resolves the user on an approved code', async () => {
     const router = createMethodRouter({
       db: db.pool,
       otpHandler: twilioVerifyHandler({ client: fakeClient(true) }),
     });
-    // globex allows OTP; alice@acme.com resolves to Alice.
+    // alice@acme.com resolves to Alice.
     const user = await router.completeOtp({
-      tenantId: db.ids.tenants.globex,
       identifier: 'alice@acme.com',
       credential: '123456',
     });
@@ -158,8 +134,8 @@ describe('twilioVerifyHandler via router.completeOtp', () => {
       db: db.pool,
       otpHandler: twilioVerifyHandler({ client: fakeClient(false) }),
     });
-    await expect(
-      router.completeOtp({ tenantId: db.ids.tenants.globex, identifier: 'alice@acme.com', credential: '000000' }),
-    ).rejects.toBeInstanceOf(VerificationFailedError);
+    await expect(router.completeOtp({ identifier: 'alice@acme.com', credential: '000000' })).rejects.toBeInstanceOf(
+      VerificationFailedError,
+    );
   });
 });

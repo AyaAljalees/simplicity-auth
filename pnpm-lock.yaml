@@ -25,8 +25,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1(release-it@21.1.1(@types/node@22.20.5))
       '@smplcty/schema-flow':
-        specifier: ^0.21.1
-        version: 0.21.1
+        specifier: ^0.24.0
+        version: 0.24.0
       '@smplcty/twilio':
         specifier: ^0.1.1
         version: 0.1.1
@@ -586,8 +586,8 @@ packages:
     peerDependencies:
       pg: '>=8.0.0'
 
-  '@smplcty/schema-flow@0.21.1':
-    resolution: {integrity: sha512-Vrrsp9kxA6Zv3Vf+La2UrQQQ9UHWSKKpcg4sF/8bDMeIuhPrLgprwcbQ46Avob4IYoADij6LAORoS/jff9fB5A==}
+  '@smplcty/schema-flow@0.24.0':
+    resolution: {integrity: sha512-2BU0+8SYBtYxcf3F0uszwP05TbaVK5vqgG1CeUGB3BDtCyP/xbZsLEvT453CXMyjhsURFrSaAyWe4bhq33TyxA==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -2475,7 +2475,7 @@ snapshots:
     dependencies:
       pg: 8.23.1
 
-  '@smplcty/schema-flow@0.21.1':
+  '@smplcty/schema-flow@0.24.0':
     dependencies:
       glob: 13.0.6
       pg: 8.23.1

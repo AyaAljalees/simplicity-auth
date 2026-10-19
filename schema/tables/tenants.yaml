@@ -17,14 +17,6 @@ columns:
   # Nullable: multitenancy (and sub-domains) are optional for simple apps.
   - name: slug
     type: text
-  # Whether user-bound OTP (Twilio) sign-in is allowed for this tenant.
-  # Irrelevant when the tenant has no auth_domain (OTP is the only way);
-  # set false to enforce SSO-only on a tenant that has OIDC. Enforced in the
-  # router, not just the UI.
-  - name: allow_otp
-    type: boolean
-    nullable: false
-    default: true
 checks:
   # The slug IS the sub-domain (acme.app.com), so it must be a valid DNS label:
   # lowercase alphanumerics and internal hyphens, no leading/trailing hyphen. An

@@ -1,0 +1,81 @@
+table: tenant_email_domains
+# The email domains a tenant has claimed, and whether it has proven it owns
+# them. An auth domain (a tenant's IdP) authenticates only email addresses at
+# its tenant's VERIFIED domains — a tenant admin's IdP can assert any address,
+# so without this one tenant could sign in as any user in the system. A domain
+# is verified by publishing verification_token in a DNS TXT record (see
+# @smplcty/auth/email-domains), or by a global admin through the privileged
+# pool for a customer who can't edit DNS.
+#
+# sso_required: once verified, code (OTP) sign-in is refused for every email
+# address at the domain, on every sub-domain — the tenant's users must come in
+# through SSO. Outsiders (addresses at other domains) are unaffected.
+mixins: [audit, soft_delete]
+# Grants. The verified state is the security boundary, so app_rls gets column
+# grants that leave it out: a tenant admin can claim a domain, toggle
+# sso_required and remove (soft-delete) a row, but can never write
+# verification_token (server-generated, so it can't be copied from another
+# tenant's public TXT record) or verified_at (written only after a DNS check,
+# or by a global admin, both through app_privileged). domain and tenant_id are
+# not updatable either, so a verified row can't be pointed somewhere else.
+grants:
+  - to: app_rls
+    privileges: [SELECT]
+  - to: app_rls
+    privileges: [INSERT]
+    columns: [tenant_id, domain, sso_required]
+  - to: app_rls
+    privileges: [UPDATE]
+    columns: [sso_required, deleted_at]
+  - to: app_privileged
+    privileges: [UPDATE]
+    columns: [verified_at]
+columns:
+  - name: tenant_email_domain_id
+    type: bigserial
+    primary_key: true
+  - name: tenant_id
+    type: bigint
+    nullable: false
+    references:
+      table: tenants
+      column: tenant_id
+  # Lowercase, exact match: acme.com does not cover eu.acme.com.
+  - name: domain
+    type: text
+    nullable: false
+  # Per row, so a token issued to one tenant never verifies the domain for
+  # another — even if both claim it.
+  - name: verification_token
+    type: text
+    nullable: false
+    default: "replace(gen_random_uuid()::text, '-', '')"
+  - name: verified_at
+    type: timestamptz
+  - name: sso_required
+    type: boolean
+    nullable: false
+    default: 'false'
+checks:
+  - name: tenant_email_domains_domain_check
+    expression: "domain ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9-]{2,63}$'"
+indexes:
+  - columns: [tenant_id, domain]
+    unique: true
+    where: 'deleted_at IS NULL'
+    name: tenant_email_domains_tenant_domain_key
+  # The sign-in checks look a domain up across tenants.
+  - columns: [domain]
+    where: 'verified_at IS NOT NULL AND deleted_at IS NULL'
+    name: tenant_email_domains_verified_domain_idx
+# RLS. A settings concern, like auth_domains: a settings admin sees and
+# maintains the email domains of the tenants they have settings access to. The
+# sign-in checks read this table through the privileged pool, pre-session.
+rls: true
+policies:
+  - name: tenant_email_domains_settings
+    for: ALL
+    to: app_rls
+    permissive: true
+    using: auth_has_role('settings', tenant_email_domains.tenant_id)
+    check: auth_has_role('settings', tenant_email_domains.tenant_id)

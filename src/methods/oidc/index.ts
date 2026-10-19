@@ -1,8 +1,9 @@
 import * as oauth from 'oauth4webapi';
 import { InvalidInputError } from '../../errors.js';
 import { findUserByCommunicationMethod } from '../../find-user-by-communication-method.js';
+import { emailDomainOf, tenantHasVerifiedDomain } from '../../internal/email-domain.js';
 import type { Queryable } from '../../types.js';
-import { VerificationFailedError } from '../errors.js';
+import { EmailDomainNotVerifiedError, VerificationFailedError } from '../errors.js';
 import type { AuthDomain, ResolvedUser } from '../types.js';
 
 /**
@@ -206,6 +207,17 @@ export function oidcHandler(options: OidcHandlerOptions = {}): OidcHandler {
             : undefined;
       if (!email) {
         throw new VerificationFailedError('OIDC id_token has no email or preferred_username');
+      }
+
+      // An IdP is trusted only for the email domains its tenant has verified —
+      // checked before any lookup or provisioning, so a tenant admin's IdP can't
+      // sign in (or create) a user at someone else's domain.
+      const domain = emailDomainOf(email);
+      if (!domain) {
+        throw new VerificationFailedError('OIDC email claim is not an email address');
+      }
+      if (!(await tenantHasVerifiedDomain(db, authDomain.tenantId, domain))) {
+        throw new EmailDomainNotVerifiedError(authDomain.tenantId, domain);
       }
 
       const existing = await findUserByCommunicationMethod(db, { channel: 'email', code: email });

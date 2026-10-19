@@ -49,6 +49,11 @@ resolver), **not** in the database. Email is read as `email ?? preferred_usernam
 (Entra often uses the latter) — ensure the user's `user_communication_methods.code`
 (channel `email`) matches.
 
+`complete` refuses an address at a domain the auth domain's tenant hasn't
+verified, with `EmailDomainNotVerifiedError`, before any lookup or
+`provisionUser` call. An auth domain with no verified domains signs nobody in.
+See [Email domains](/simplicity-auth/methods/email-domains/).
+
 ## Why not Auth.js, why not a hand-rolled `@smplcty/oidc`
 
 `oauth4webapi` is the spec-complete protocol engine (the same one Auth.js uses

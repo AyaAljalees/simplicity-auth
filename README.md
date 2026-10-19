@@ -211,7 +211,9 @@ Sign-in is **tenant-centric**: the app resolves the tenant from the request sub-
 - **1 IdP** → straight redirect, no chooser.
 - **N IdPs** → a chooser (one button per IdP, labeled `displayName`, valued by `auth_domain_id`).
 
-The user-bound **OTP** path is gated by the tenant's `allow_otp` flag, **enforced in the router** (not just hidden in the UI) so an SSO-only tenant can't be bypassed. **OIDC** is handled by a dedicated `@smplcty/auth/oidc` handler (built on [`oauth4webapi`](https://github.com/panva/oauth4webapi)) — its `authorize`/`callback` shape is richer than the OTP two-phase, so it's driven directly rather than through the router. See [ADR-0001](docs/adr/0001-oidc-via-oauth4webapi.md).
+The user-bound **OTP** path is open on every tenant, except that addresses at a verified email domain that requires SSO are refused **in the router**, on every sub-domain (not just hidden in the UI). **OIDC** is handled by a dedicated `@smplcty/auth/oidc` handler (built on [`oauth4webapi`](https://github.com/panva/oauth4webapi)) — its `authorize`/`callback` shape is richer than the OTP two-phase, so it's driven directly rather than through the router. See [ADR-0001](docs/adr/0001-oidc-via-oauth4webapi.md).
+
+**A tenant's IdP may only sign in email addresses at domains that tenant has verified** (`tenant_email_domains`). A tenant admin configures their own IdP, and an IdP can claim any address, so without this check one tenant could sign in as another tenant's users, or as a global admin. A tenant proves it owns a domain by publishing a DNS TXT record whose name you white-label (`@smplcty/auth/email-domains`). A verified domain can also **require SSO**, which refuses code sign-in for every address at that domain on every sub-domain. Full reference: **[Email domains](https://mabulu-inc.github.io/simplicity-auth/methods/email-domains/)**.
 
 ```ts
 import { createMethodRouter } from '@smplcty/auth';
@@ -228,7 +230,7 @@ const oidc = oidcHandler({ clientSecret: (ad) => secrets.get(ad.tenantId) }); //
 // Sign-in page — app parsed Host → 'acme':
 const opts = await router.signInOptions({ tenantSlug: 'acme' });
 // opts = { tenantId, authDomains: AuthDomain[], otpAllowed: boolean }
-//   render: a button per opts.authDomains + an OTP form iff opts.otpAllowed
+//   render: a button per opts.authDomains + an OTP form iff opts.otpAllowed (an OTP handler is configured)
 
 // OIDC — user picked an IdP (an AuthDomain from opts.authDomains):
 const { redirectUrl, loginState } = await oidc.initiate(authDomain);
@@ -237,8 +239,8 @@ const { redirectUrl, loginState } = await oidc.initiate(authDomain);
 const user = await oidc.complete({ db: pool, authDomain, callbackUrl, loginState });
 
 // OTP (only when opts.otpAllowed):
-await router.initiateOtp({ tenantId: opts.tenantId, identifier: phone });
-const user2 = await router.completeOtp({ tenantId: opts.tenantId, identifier: phone, credential: code });
+await router.initiateOtp({ identifier: phone });
+const user2 = await router.completeOtp({ identifier: phone, credential: code });
 
 const session = await createSession(pool, {
   userCommunicationMethodId: user.userCommunicationMethodId,
@@ -284,8 +286,8 @@ app.all('/auth/*', (c) => handlers.handle(c.req.raw).then((r) => r ?? c.notFound
 It exposes `GET …/sign-in/options`, `POST …/otp/initiate`, `POST …/otp/complete`,
 `GET …/oidc/start`, `GET …/oidc/callback`, `POST …/sign-out`, and
 `GET …/session`, plus `getSessionToken` / `withRequestSession` for authenticating
-every other request. `returnTo` is open-redirect-guarded, `allow_otp` is enforced
-server-side, and the OIDC login-state cookie is HMAC-signed and freshness-checked.
+every other request. `returnTo` is open-redirect-guarded, SSO-required email domains are
+enforced server-side, and the OIDC login-state cookie is HMAC-signed and freshness-checked.
 
 Full reference: **[HTTP transport](https://mabulu-inc.github.io/simplicity-auth/http/transport/)**.
 
@@ -478,7 +480,7 @@ The library ships its schema as schema-flow YAML inside the package at `@smplcty
 @smplcty/auth/schema/
 ├── tables/
 │   ├── users.yaml                       # + audit; seeds the app-init service user (matched by name)
-│   ├── tenants.yaml                      # + audit; slug (sub-domain, DNS-label CHECK), allow_otp (SSO-only switch)
+│   ├── tenants.yaml                      # + audit; slug (sub-domain, DNS-label CHECK), and tenant_email_domains.yaml (verified email domains, SSO required)
 │   ├── roles.yaml                        # + audit; seeds 'user' (default), 'settings', 'security'
 │   ├── user_roles.yaml                   # + audit; tenant_id NULL = wildcard / all tenants
 │   ├── communication_channels.yaml      # + audit
@@ -536,6 +538,7 @@ Every table carries the `soft_delete` mixin (`deleted_at`). The library **honors
 - Identity GUCs set via `set_config($1, $2, true)`, transaction-scoped — injection and cross-request leakage are impossible.
 - `withSession` validates existence, expiry/revocation, and role membership before running the callback. Fails closed.
 - Force sign-off is a row update (per-session, per-user, or per-tenant); role/privilege changes apply on the next request.
+- A tenant's IdP is trusted only for email domains the tenant has proven it owns via DNS; tenant admins can't mark a domain verified by any write.
 - Auth core has no `jose`/Twilio dependency; method handlers are opt-in subpaths with optional peers.
 
 ## License

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as jose from 'jose';
-import { InvalidInputError, VerificationFailedError } from '../src/index.js';
+import { EmailDomainNotVerifiedError, InvalidInputError, VerificationFailedError } from '../src/index.js';
 import { oidcHandler, type OidcParams, type OidcHandlerOptions } from '../src/methods/oidc/index.js';
 import type { AuthDomain } from '../src/index.js';
+import { seedVerifiedDomain } from './helpers/email-domains.js';
 import { startTestDb, type TestDb } from './helpers/test-db.js';
 
 // Unique issuer per case — the handler caches discovery per issuer at module
@@ -51,13 +52,14 @@ async function makeIdp(issuer: string, clientId: string) {
   return { fetchImpl, signIdToken };
 }
 
-// A synthetic in-memory AuthDomain for testing the handler in isolation (these
-// describes never touch the DB). The handler reads only integrationParams, so
-// authDomainId / tenantId are placeholders, not references to seeded rows.
-function authDomainFor(issuer: string, clientId = 'test-client'): AuthDomain<OidcParams> {
+// A synthetic in-memory AuthDomain for testing the handler in isolation. The
+// handler reads integrationParams, and complete() checks tenantId's verified
+// email domains — so tests that reach complete() pass a seeded tenant.
+// authDomainId is a placeholder: nothing reads it.
+function authDomainFor(issuer: string, clientId = 'test-client', tenantId = 0): AuthDomain<OidcParams> {
   return {
-    authDomainId: 1,
-    tenantId: 1,
+    authDomainId: 0,
+    tenantId,
     displayName: 'Test IdP',
     integrationType: 'oidc',
     integrationParams: { issuer, clientId, redirectUri: 'https://app.test/callback' },
@@ -105,6 +107,9 @@ describe('oidcHandler.complete', () => {
   let db: TestDb;
   beforeAll(async () => {
     db = await startTestDb();
+    // acme's IdP may vouch for acme.com and nowhere.test — not for globex.com.
+    await seedVerifiedDomain(db, db.ids.tenants.acme, 'acme.com');
+    await seedVerifiedDomain(db, db.ids.tenants.acme, 'nowhere.test');
   });
   afterAll(async () => {
     await db.shutdown();
@@ -118,7 +123,7 @@ describe('oidcHandler.complete', () => {
       clientSecret: () => 'test-secret',
       provisionUser: opts.provisionUser,
     });
-    const authDomain = authDomainFor(issuer);
+    const authDomain = authDomainFor(issuer, 'test-client', db.ids.tenants.acme);
 
     const { loginState } = await handler.initiate(authDomain);
     await idp.signIdToken({
@@ -148,6 +153,39 @@ describe('oidcHandler.complete', () => {
 
   it('throws VerificationFailedError for a verified identity with no user and no provisioning', async () => {
     await expect(runFlow({ email: 'ghost@nowhere.test' })).rejects.toBeInstanceOf(VerificationFailedError);
+  });
+
+  it('refuses an email at a domain the tenant has not verified, before lookup or provisioning', async () => {
+    // bob@globex.com is a real, seeded user — but acme hasn't verified globex.com,
+    // so acme's IdP can't sign him in, and the provisioning hook never runs.
+    let provisioned = false;
+    const err = await runFlow({
+      email: 'bob@globex.com',
+      provisionUser: async () => {
+        provisioned = true;
+        return { userId: db.ids.users.bob, userCommunicationMethodId: db.ids.ucm.bob };
+      },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EmailDomainNotVerifiedError);
+    expect(err).toMatchObject({ code: 'EMAIL_DOMAIN_NOT_VERIFIED', domain: 'globex.com' });
+    expect(provisioned).toBe(false);
+  });
+
+  it('refuses a domain the tenant claimed but has not verified, and one another tenant verified', async () => {
+    // Globex verified globex.com; acme merely claims it (verified_at NULL).
+    await seedVerifiedDomain(db, db.ids.tenants.globex, 'globex.com');
+    const c = await db.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query(`SELECT set_config('app.actor_id', $1, true)`, [String(db.ids.appInit)]);
+      await c.query(`INSERT INTO tenant_email_domains (tenant_id, domain) VALUES ($1, 'globex.com')`, [
+        db.ids.tenants.acme,
+      ]);
+      await c.query('COMMIT');
+    } finally {
+      c.release();
+    }
+    await expect(runFlow({ email: 'bob@globex.com' })).rejects.toBeInstanceOf(EmailDomainNotVerifiedError);
   });
 
   it('provisions a new user via the provisionUser hook', async () => {
