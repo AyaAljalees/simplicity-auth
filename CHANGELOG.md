@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-10-19
+
 ### Security
 
 - **A tenant's single sign-on can no longer be used to sign in as someone
@@ -565,7 +567,8 @@ Baseline release. Notes for this and earlier versions are on the
 [GitHub releases page](https://github.com/mabulu-inc/simplicity-auth/releases);
 the Keep a Changelog history starts from the next release.
 
-[Unreleased]: https://github.com/mabulu-inc/simplicity-auth/compare/v9.0.2...HEAD
+[Unreleased]: https://github.com/mabulu-inc/simplicity-auth/compare/v10.0.0...HEAD
+[10.0.0]: https://github.com/mabulu-inc/simplicity-auth/compare/v9.0.2...v10.0.0
 [9.0.2]: https://github.com/mabulu-inc/simplicity-auth/compare/v9.0.1...v9.0.2
 [9.0.1]: https://github.com/mabulu-inc/simplicity-auth/compare/v9.0.0...v9.0.1
 [9.0.0]: https://github.com/mabulu-inc/simplicity-auth/compare/v8.1.0...v9.0.0
