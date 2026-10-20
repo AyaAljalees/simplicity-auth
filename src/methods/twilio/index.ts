@@ -73,6 +73,12 @@ export function twilioVerifyHandler(options: TwilioVerifyHandlerOptions): Method
   const resolveChannel = options.resolveChannel ?? defaultResolveChannel;
 
   return {
+    async resolveUser(ctx: MethodInitiateContext): Promise<ResolvedUser | null> {
+      const identifier = requireIdentifier(ctx.identifier);
+      const { channelName } = resolveChannel(identifier);
+      return findUserByCommunicationMethod(ctx.db, { channel: channelName, code: identifier });
+    },
+
     async initiate(ctx: MethodInitiateContext): Promise<MethodInitiateResult> {
       const identifier = requireIdentifier(ctx.identifier);
       const { channelName, verifyChannel } = resolveChannel(identifier);

@@ -59,6 +59,10 @@ export interface MethodCompleteContext extends MethodInitiateContext {
 export interface MethodHandler {
   initiate(ctx: MethodInitiateContext): Promise<MethodInitiateResult>;
   complete(ctx: MethodCompleteContext): Promise<ResolvedUser>;
+  /** The user `complete` would resolve for `identifier`, or null for an unknown
+   *  one, without sending or verifying anything. When present, the router uses
+   *  it to send no code to someone `completeOtp` would refuse. */
+  resolveUser?(ctx: MethodInitiateContext): Promise<ResolvedUser | null>;
 }
 
 /**

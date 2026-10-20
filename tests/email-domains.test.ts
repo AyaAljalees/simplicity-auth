@@ -8,6 +8,7 @@ import {
   type MethodHandler,
 } from '../src/index.js';
 import { emailDomainVerifier, type ResolveTxt } from '../src/email-domains/index.js';
+import { twilioVerifyHandler } from '../src/methods/twilio/index.js';
 import { seedVerifiedDomain } from './helpers/email-domains.js';
 import { startTestDb, type TestDb } from './helpers/test-db.js';
 
@@ -307,6 +308,60 @@ describe('a verified domain that requires SSO closes code sign-in everywhere', (
     it('refuses code sign-in for an acme.com user, even by phone', async () => {
       await expect(signIn('alice@acme.com')).rejects.toBeInstanceOf(SsoRequiredError);
       await expect(signIn('+15555550100')).rejects.toBeInstanceOf(SsoRequiredError);
+    });
+
+    describe('through the Twilio handler', () => {
+      const sent: string[] = [];
+      const twilio = () =>
+        createMethodRouter({
+          db: db.pool,
+          otpHandler: twilioVerifyHandler({
+            client: {
+              async sendVerificationCode({ to }) {
+                sent.push(to);
+                return true;
+              },
+              async verifyVerificationCode() {
+                return true;
+              },
+            },
+          }),
+        });
+      const addMethod = (user: number, channel: 'email' | 'phone', code: string) =>
+        asAppInit((c) =>
+          c.query(
+            `INSERT INTO user_communication_methods (user_id, communication_channel_id, code)
+             SELECT $1, communication_channel_id, $3 FROM communication_channels WHERE name = $2`,
+            [user, channel, code],
+          ),
+        );
+
+      beforeAll(async () => {
+        await addMethod(db.ids.users.alice, 'phone', '+15555550111');
+        await addMethod(db.ids.users.alice, 'email', 'alice@personal.example');
+        await addMethod(db.ids.users.bob, 'phone', '+15555550122');
+      });
+
+      it.each([
+        ['her phone', '+15555550111'],
+        ['her email at a domain that does not require SSO', 'alice@personal.example'],
+      ])('sends no code to an acme.com user by %s, and answers as for an unknown identifier', async (_label, id) => {
+        sent.length = 0;
+        const unknown = await twilio().initiateOtp({ identifier: '+15555550999' });
+
+        const result = await twilio().initiateOtp({ identifier: id });
+
+        expect(sent).toEqual([]);
+        expect(result).toEqual(unknown);
+      });
+
+      it('still sends a code to an outsider by phone', async () => {
+        sent.length = 0;
+
+        await twilio().initiateOtp({ identifier: '+15555550122' });
+
+        expect(sent).toEqual(['+15555550122']);
+      });
     });
 
     it('leaves outsiders alone: bob@globex.com still signs in by code', async () => {
