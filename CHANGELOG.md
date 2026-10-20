@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   off-site. `createAuthHandlers` now throws if `returnToDefault` would leave
   the site.
 
+  **Breaking:** an absolute URL or `//host` in `returnToDefault` used to work
+  and now throws when the handlers are created. Set it to a path such as
+  `/home`, and redirect to another site from that page if you need to.
+
 ## [10.0.0] - 2026-10-19
 
 ### Security
