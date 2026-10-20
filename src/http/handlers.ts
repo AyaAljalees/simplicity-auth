@@ -170,17 +170,22 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
 
   // A browser reaches OIDC start and callback by navigation, so a failure there
   // goes to a page the app can render rather than a JSON body.
-  function signInFailure(code: string, otherwise: Response): Response {
+  // The login-state cookie is cleared only for a callback that carried a valid one,
+  // so a forged request can't cancel a sign-in in progress.
+  function signInFailure(code: string, otherwise: Response, clearLoginState = false): Response {
     if (!signInErrorPath) return otherwise;
     const url = new URL(signInErrorPath, RETURN_TO_PROBE_ORIGIN);
     url.searchParams.set('error', code);
     const res = redirect(url.pathname + url.search + url.hash);
-    res.headers.append('set-cookie', serializeCookie(loginStateCookieName, '', sessionCookieOptions(0)));
+    if (clearLoginState) {
+      res.headers.append('set-cookie', serializeCookie(loginStateCookieName, '', sessionCookieOptions(0)));
+    }
     return res;
   }
 
-  function signInFailureFor(err: unknown): Response {
-    return signInFailure(err instanceof AuthError ? err.code : 'SIGN_IN_FAILED', toErrorResponse(err));
+  function signInFailureFor(err: unknown, clearLoginState = false): Response {
+    const code = err instanceof AuthError ? err.code : 'SIGN_IN_FAILED';
+    return signInFailure(code, toErrorResponse(err), clearLoginState);
   }
 
   async function resolveTenantId(request: Request): Promise<number | null> {
@@ -294,6 +299,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
     },
 
     async oidcCallback(request) {
+      let loginStateValid = false;
       try {
         if (!config.oidc) return signInFailure('OIDC_NOT_CONFIGURED', json({ error: 'OIDC is not configured' }, 404));
         const cookies = parseCookies(request.headers.get('cookie'));
@@ -305,8 +311,11 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
         if (!loginState) {
           return signInFailure('INVALID_LOGIN_STATE', json({ error: 'missing or invalid login state' }, 400));
         }
+        loginStateValid = true;
         const authDomain = await getAuthDomain(pool, loginState.authDomainId);
-        if (!authDomain) return signInFailure('UNKNOWN_AUTH_DOMAIN', json({ error: 'unknown auth domain' }, 404));
+        if (!authDomain) {
+          return signInFailure('UNKNOWN_AUTH_DOMAIN', json({ error: 'unknown auth domain' }, 404), true);
+        }
         const user = await config.oidc.complete({
           db: pool,
           authDomain,
@@ -320,7 +329,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
         res.headers.append('set-cookie', serializeCookie(loginStateCookieName, '', sessionCookieOptions(0)));
         return res;
       } catch (err) {
-        return signInFailureFor(err);
+        return signInFailureFor(err, loginStateValid);
       }
     },
 

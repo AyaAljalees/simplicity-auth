@@ -412,6 +412,65 @@ describe('createAuthHandlers — OIDC end-to-end', () => {
       expect(res.headers.get('location')).toBe('/sign-in/error?error=UNKNOWN_AUTH_DOMAIN');
     });
 
+    it('leaves a sign-in in progress alone when a forged callback fails', async () => {
+      const handlers = createAuthHandlers(errorConfig());
+      const forged = await handlers.oidcCallback(
+        req('GET', 'https://app.test/auth/oidc/callback?code=c&state=s', { cookie: 'pn_session_oidc=forged.sig' }),
+      );
+
+      expect(forged.headers.getSetCookie().find((c) => c.startsWith('pn_session_oidc='))).toBeUndefined();
+    });
+
+    it('sends a callback for an auth domain that no longer exists to the error path', async () => {
+      const handlers = createAuthHandlers(errorConfig());
+      const stateCookie = await signLoginState(
+        { authDomainId: 999999, state: 's', nonce: 'n', codeVerifier: 'v' },
+        'test-login-state-secret',
+      );
+
+      const res = await handlers.oidcCallback(
+        req('GET', 'https://app.test/auth/oidc/callback?code=c&state=s', { cookie: `pn_session_oidc=${stateCookie}` }),
+      );
+
+      expect(res.headers.get('location')).toBe('/sign-in/error?error=UNKNOWN_AUTH_DOMAIN');
+    });
+
+    it('sends a bad start request to the error path', async () => {
+      const handlers = createAuthHandlers(errorConfig());
+      const res = await handlers.oidcStart(req('GET', 'https://app.test/auth/oidc/start?authDomainId=abc'));
+
+      expect(res.headers.get('location')).toBe('/sign-in/error?error=INVALID_INPUT');
+    });
+
+    it('sends an unexpected failure to the error path with a generic code', async () => {
+      const broken = async (): Promise<never> => {
+        throw new TypeError('network down');
+      };
+      const handlers = createAuthHandlers(
+        makeConfig({ signInErrorPath: '/sign-in/error', oidc: { initiate: broken, complete: broken } }),
+      );
+
+      const res = await handlers.oidcStart(req('GET', `https://app.test/auth/oidc/start?authDomainId=${authDomainId}`));
+
+      expect(res.headers.get('location')).toBe('/sign-in/error?error=SIGN_IN_FAILED');
+    });
+
+    it('sends both OIDC endpoints to the error path when OIDC is not configured', async () => {
+      const handlers = createAuthHandlers(makeConfig({ signInErrorPath: '/sign-in/error' }));
+
+      const start = await handlers.oidcStart(req('GET', 'https://app.test/auth/oidc/start?authDomainId=1'));
+      const callback = await handlers.oidcCallback(req('GET', 'https://app.test/auth/oidc/callback'));
+
+      expect(start.headers.get('location')).toBe('/sign-in/error?error=OIDC_NOT_CONFIGURED');
+      expect(callback.headers.get('location')).toBe('/sign-in/error?error=OIDC_NOT_CONFIGURED');
+    });
+
+    it("keeps the error path's fragment after the code", async () => {
+      const res = await callbackAs(errorConfig('/sign-in#sso'), 'bob@unverified.example');
+
+      expect(res.headers.get('location')).toBe('/sign-in?error=EMAIL_DOMAIN_NOT_VERIFIED#sso');
+    });
+
     it("keeps the error path's own query", async () => {
       const res = await callbackAs(errorConfig('/sign-in?view=sso'), 'bob@unverified.example');
 

@@ -15,21 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `signInErrorPath: '/sign-in'`, a failure at `oidcStart` or `oidcCallback`
   redirects to `/sign-in?error=<CODE>` (for example `EMAIL_DOMAIN_NOT_VERIFIED`
   or `INVALID_LOGIN_STATE`) and clears the login-state cookie. Only the code is
-  sent, never the domain or tenant. The path must be on your own site, and
-  `createAuthHandlers` throws otherwise. Without it, failures are answered as
-  JSON, as before.
+  sent, never the domain or tenant. The login-state cookie is cleared only when
+  the callback carried a valid one, so a forged request can't cancel a sign-in in
+  progress. The path must be on your own site, and `createAuthHandlers` throws
+  otherwise. Without it, failures are answered as JSON, as before.
 - **`MethodHandler.resolveUser`**, optional: the user `complete` would resolve
   for an identifier, without sending anything. `twilioVerifyHandler` implements
   it.
 
 ### Security
 
-- **No code is sent to someone who has to sign in with SSO.** `initiateOtp`
-  checked only the domain of what was typed, so a phone number, or an email at
-  another domain, of a user whose email is at an SSO-required domain got a real
-  code, which `completeOtp` then refused. It now reaches the same verdict before
-  sending, using the handler's `resolveUser`. It answers as it does for an
-  unknown identifier, so a phone number can't be used to learn whose it is.
+- **`twilioVerifyHandler` sends no code to someone who has to sign in with
+  SSO.** `initiateOtp` checked only the domain of what was typed, so a phone
+  number, or an email at another domain, of a user whose email is at an
+  SSO-required domain got a real code, which `completeOtp` then refused. With a
+  handler that implements `resolveUser`, it now reaches the same verdict before
+  sending, and answers with the same `{ otpSent: true }` as for an unknown
+  identifier, so the response doesn't reveal whose a phone number is. The user
+  sees "code sent" and no code arrives, so tell people at an SSO-required domain
+  to use their organization's sign-in. A custom handler without `resolveUser`
+  still sends the code.
 
 ## [11.0.0] - 2026-10-20
 

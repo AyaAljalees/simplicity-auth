@@ -52,6 +52,8 @@ resolver), **not** in the database. Email is read as `email ?? preferred_usernam
 `complete` refuses an address at a domain the auth domain's tenant hasn't
 verified, with `EmailDomainNotVerifiedError`, before any lookup or
 `provisionUser` call. An auth domain with no verified domains signs nobody in.
+The HTTP transport's `signInErrorPath` sends that refusal to a page your app
+renders.
 See [Email domains](/simplicity-auth/methods/email-domains/).
 
 ## Why not Auth.js, why not a hand-rolled `@smplcty/oidc`

@@ -14,7 +14,8 @@ sign in as you.
 - The OIDC callback refuses an email address whose domain the auth domain's
   tenant hasn't verified. It throws `EmailDomainNotVerifiedError` (HTTP `403`,
   code `EMAIL_DOMAIN_NOT_VERIFIED`) **before** looking the user up or calling
-  `provisionUser`.
+  `provisionUser`. Set `signInErrorPath` to land that refusal on a page your app
+  renders instead of a JSON body; see [HTTP transport](/simplicity-auth/http/transport/).
 - An address that passes is authoritative. The session reaches everything that
   user is authorized for, in any tenant.
 - The match is exact: verifying `acme.com` doesn't cover `eu.acme.com`.
@@ -83,9 +84,17 @@ WHERE tenant_email_domain_id = $1;
 
 Set `sso_required` on a verified domain, and code (OTP) sign-in is refused for
 every address at that domain, **on every sub-domain**: `SsoRequiredError` (HTTP
-`403`, code `SSO_REQUIRED`). The router checks the identifier before sending a
-code, and checks every email address of the signed-in user before completing.
-So a user at that domain can't sign in by phone either.
+`403`, code `SSO_REQUIRED`). The router checks every email address of the
+signed-in user before completing, so a user at that domain can't sign in by
+phone either.
+
+Before sending a code, an email typed at that domain is refused with
+`SsoRequiredError`. A phone number, or an email at another domain, belonging to
+such a user gets the same `{ otpSent: true }` an unknown identifier gets, and no
+code is sent. Your sign-in screen can't tell them apart, so tell users at an
+SSO-required domain to use their organization's sign-in. That pre-send check
+needs the handler's `resolveUser`. `twilioVerifyHandler` has it; a custom
+`MethodHandler` without it still sends the code, and `completeOtp` refuses it.
 
 Outsiders are unaffected. `sam@mabulu.com` isn't at `acme.com`, so they sign in
 their usual way and reach Acme through whatever roles they hold.

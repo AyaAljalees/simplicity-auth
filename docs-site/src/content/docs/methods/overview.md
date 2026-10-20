@@ -33,7 +33,9 @@ const opts = await router.signInOptions({ tenantSlug: 'acme' });
 - **OTP / dev-OTP** (user-bound) goes through the **router**: `initiateOtp` /
   `completeOtp`, open on every tenant except for addresses at a verified email
   domain that requires SSO, which the router refuses on every sub-domain (see
-  [Email domains](/simplicity-auth/methods/email-domains/)).
+  [Email domains](/simplicity-auth/methods/email-domains/)). A handler that
+  implements the optional `resolveUser` also lets the router skip sending a
+  code to such a user's phone or other email.
 - **OIDC** (org-bound) is driven by a **dedicated handler** —
   [`@smplcty/auth/oidc`](/simplicity-auth/methods/oidc/) on `oauth4webapi` — whose
   `initiate`/`complete` shape (PKCE + login-state) is richer than the OTP
