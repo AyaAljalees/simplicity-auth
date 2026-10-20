@@ -43,7 +43,7 @@ export interface AuthHttpConfig {
   loginStateTtlSeconds?: number;
   /** Resolve the tenant slug from the request (e.g. parse the Host sub-domain). */
   tenantSlugFromRequest: (request: Request) => string | null | Promise<string | null>;
-  /** Where to send the browser after sign-in when no safe `returnTo` is supplied. Defaults to `'/'`. */
+  /** Where to send the browser after sign-in when no safe `returnTo` is supplied. Defaults to `'/'`. Must be a path on this site; `createAuthHandlers` throws otherwise. */
   returnToDefault?: string;
   /** The user-bound OTP handler (e.g. `twilioVerifyHandler`). Omit for SSO-only. */
   otpHandler?: MethodHandler;

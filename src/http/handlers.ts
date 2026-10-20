@@ -118,17 +118,35 @@ function toErrorResponse(err: unknown): Response {
   return json({ error: 'Internal error' }, 500);
 }
 
+const RETURN_TO_PROBE_ORIGIN = 'https://return-to.invalid';
+
 /**
- * Only allow same-origin relative redirects — never an absolute URL,
- * protocol-relative `//host`, or the backslash variant `/\host` that browsers
- * normalize to `//host` (open-redirect guard).
+ * The same-origin path a browser would reach from `raw`, or undefined when it
+ * would leave the site (open-redirect guard). Browsers strip leading spaces and
+ * control characters, drop tab, CR and LF, and resolve dot segments and
+ * backslashes before reading the host, so the check runs on the parsed URL, not
+ * the raw string.
  */
 function sanitizeReturnTo(raw: string | null | undefined): string | undefined {
-  if (!raw || raw[0] !== '/' || raw[1] === '/' || raw[1] === '\\') return undefined;
-  return raw;
+  // Root-relative once the parser strips leading C0 controls and spaces.
+  if (!raw || !/^[\0- ]*\//.test(raw)) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw, RETURN_TO_PROBE_ORIGIN);
+  } catch {
+    return undefined;
+  }
+  const path = url.pathname + url.search + url.hash;
+  // The parser has already turned backslashes into slashes, but resolving a dot
+  // segment (`/.//evil.com`) can still leave a path that reads as `//host`.
+  return url.origin === RETURN_TO_PROBE_ORIGIN && !path.startsWith('//') ? path : undefined;
 }
 
 export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
+  const returnToDefault = sanitizeReturnTo(config.returnToDefault ?? '/');
+  if (!returnToDefault) {
+    throw new Error(`returnToDefault must be a path on this site, got ${JSON.stringify(config.returnToDefault)}`);
+  }
   const pool: Pool = config.pool;
   const router = createMethodRouter({ db: pool, otpHandler: config.otpHandler });
   const sessionTtl = config.sessionTtl ?? DEFAULT_SESSION_TTL;
@@ -216,7 +234,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
         const user = await router.completeOtp({ identifier, credential });
         const cookie = await mintSessionCookie(request, user);
         const returnTo = sanitizeReturnTo(typeof body.returnTo === 'string' ? body.returnTo : undefined);
-        const res = json({ ok: true, returnTo: returnTo ?? config.returnToDefault ?? '/' });
+        const res = json({ ok: true, returnTo: returnTo ?? returnToDefault });
         res.headers.append('set-cookie', cookie);
         return res;
       } catch (err) {
@@ -275,7 +293,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
           loginState: { state: loginState.state, nonce: loginState.nonce, codeVerifier: loginState.codeVerifier },
         });
         const cookie = await mintSessionCookie(request, user);
-        const res = redirect(sanitizeReturnTo(loginState.returnTo) ?? config.returnToDefault ?? '/');
+        const res = redirect(sanitizeReturnTo(loginState.returnTo) ?? returnToDefault);
         res.headers.append('set-cookie', cookie);
         // Clear the one-time login-state cookie.
         res.headers.append('set-cookie', serializeCookie(loginStateCookieName, '', sessionCookieOptions(0)));
