@@ -118,14 +118,24 @@ function toErrorResponse(err: unknown): Response {
   return json({ error: 'Internal error' }, 500);
 }
 
+const RETURN_TO_PROBE_ORIGIN = 'https://return-to.invalid';
+
 /**
- * Only allow same-origin relative redirects — never an absolute URL,
- * protocol-relative `//host`, or the backslash variant `/\host` that browsers
- * normalize to `//host` (open-redirect guard).
+ * The same-origin path a browser would reach from `raw`, or undefined when it
+ * would leave the site (open-redirect guard). Browsers strip tab, CR and LF and
+ * resolve dot segments and backslashes before reading the host, so the check runs
+ * on the parsed URL, not the raw string.
  */
 function sanitizeReturnTo(raw: string | null | undefined): string | undefined {
-  if (!raw || raw[0] !== '/' || raw[1] === '/' || raw[1] === '\\') return undefined;
-  return raw;
+  if (!raw || raw[0] !== '/') return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw, RETURN_TO_PROBE_ORIGIN);
+  } catch {
+    return undefined;
+  }
+  const path = url.pathname + url.search + url.hash;
+  return url.origin === RETURN_TO_PROBE_ORIGIN && !/^\/[/\\]/.test(path) ? path : undefined;
 }
 
 export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {

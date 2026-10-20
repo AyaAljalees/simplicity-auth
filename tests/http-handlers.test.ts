@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as jose from 'jose';
 import { createAuthHandlers } from '../src/http/index.js';
 import type { AuthHttpConfig } from '../src/http/index.js';
-import { verifyLoginState } from '../src/http/cookies.js';
+import { signLoginState, verifyLoginState } from '../src/http/cookies.js';
 import { oidcHandler } from '../src/methods/oidc/index.js';
 import { VerificationFailedError } from '../src/index.js';
 import type { MethodHandler } from '../src/index.js';
@@ -159,6 +159,31 @@ describe('createAuthHandlers — OTP', () => {
     expect(((await ok.json()) as { returnTo: string }).returnTo).toBe('/dashboard');
   });
 
+  it.each(['/\t/evil.com', '/\n/evil.com', '/\r/evil.com', '/.//evil.com', '/..//evil.com'])(
+    'ignores the returnTo %j, which a browser turns into another site',
+    async (evil) => {
+      const handlers = createAuthHandlers(makeConfig({ returnToDefault: '/home' }));
+      const res = await handlers.otpComplete(
+        req('POST', 'https://app.test/auth/otp/complete', {
+          slug: 'globex',
+          body: { identifier: 'bob@globex.com', credential: '123456', returnTo: evil },
+        }),
+      );
+      expect(((await res.json()) as { returnTo: string }).returnTo).toBe('/home');
+    },
+  );
+
+  it('returns to the path a browser would reach', async () => {
+    const handlers = createAuthHandlers(makeConfig({ returnToDefault: '/home' }));
+    const res = await handlers.otpComplete(
+      req('POST', 'https://app.test/auth/otp/complete', {
+        slug: 'globex',
+        body: { identifier: 'bob@globex.com', credential: '123456', returnTo: '/a/../dashboard' },
+      }),
+    );
+    expect(((await res.json()) as { returnTo: string }).returnTo).toBe('/dashboard');
+  });
+
   it('rejects a bad credential (401) and OTP for an address at an SSO-required domain (403)', async () => {
     const handlers = createAuthHandlers(makeConfig());
 
@@ -282,6 +307,24 @@ describe('createAuthHandlers — OIDC end-to-end', () => {
       req('GET', 'https://app.test/auth/session', { cookie: `pn_session=${sessionToken}` }),
     );
     expect(await session.json()).toMatchObject({ authenticated: true, userId: db.ids.users.bob });
+  });
+
+  it('callback ignores an unsafe returnTo carried in a validly signed login state', async () => {
+    const handlers = createAuthHandlers(makeConfig({ returnToDefault: '/home', oidc: configWithOidc().oidc }));
+    const start = await handlers.oidcStart(req('GET', `https://app.test/auth/oidc/start?authDomainId=${authDomainId}`));
+    const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+    const login = await verifyLoginState(setCookieValue(start, 'pn_session_oidc')!, 'test-login-state-secret', 600);
+    const tampered = await signLoginState({ ...login!, returnTo: '/\t/evil.com' }, 'test-login-state-secret');
+    await signIdToken({ sub: 'entra-bob', nonce: login!.nonce, email: 'bob@globex.com' });
+
+    const callback = await handlers.oidcCallback(
+      req('GET', `https://app.test/auth/oidc/callback?code=test-code&state=${state}`, {
+        cookie: `pn_session_oidc=${tampered}`,
+      }),
+    );
+
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toBe('/home');
   });
 
   it('callback with a missing/forged login-state cookie is rejected (400)', async () => {

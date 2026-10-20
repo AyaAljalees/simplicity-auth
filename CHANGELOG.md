@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A sign-in return address can no longer send a user to another site.** The
+  check looked only at the first two characters, so `/\t/evil.example` passed,
+  and a browser strips the tab and goes to `evil.example`. The same held for a
+  newline, a carriage return, and dot segments such as `/.//evil.example`. The
+  return address is now judged by where a browser would actually go, on code
+  sign-in and on the single sign-on start and callback. A safe address is
+  passed on in that resolved form, so `/a/../dashboard` returns to `/dashboard`.
+
 ## [10.0.0] - 2026-10-19
 
 ### Security
