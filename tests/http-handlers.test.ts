@@ -159,7 +159,7 @@ describe('createAuthHandlers — OTP', () => {
     expect(((await ok.json()) as { returnTo: string }).returnTo).toBe('/dashboard');
   });
 
-  it.each(['/\t/evil.com', '/\n/evil.com', '/\r/evil.com', '/.//evil.com', '/..//evil.com'])(
+  it.each(['/\t/evil.com', '/\n/evil.com', '/\r/evil.com', '/.//evil.com', '/..//evil.com', ' //evil.com'])(
     'ignores the returnTo %j, which a browser turns into another site',
     async (evil) => {
       const handlers = createAuthHandlers(makeConfig({ returnToDefault: '/home' }));
@@ -173,16 +173,28 @@ describe('createAuthHandlers — OTP', () => {
     },
   );
 
-  it('returns to the path a browser would reach', async () => {
+  it.each([
+    ['/a/../dashboard', '/dashboard'],
+    ['\t/dashboard', '/dashboard'],
+    [' /dashboard', '/dashboard'],
+    ['/search?q=a b', '/search?q=a%20b'],
+  ])('returns the returnTo %j as the path a browser would reach, %j', async (given, reached) => {
     const handlers = createAuthHandlers(makeConfig({ returnToDefault: '/home' }));
     const res = await handlers.otpComplete(
       req('POST', 'https://app.test/auth/otp/complete', {
         slug: 'globex',
-        body: { identifier: 'bob@globex.com', credential: '123456', returnTo: '/a/../dashboard' },
+        body: { identifier: 'bob@globex.com', credential: '123456', returnTo: given },
       }),
     );
-    expect(((await res.json()) as { returnTo: string }).returnTo).toBe('/dashboard');
+    expect(((await res.json()) as { returnTo: string }).returnTo).toBe(reached);
   });
+
+  it.each(['https://evil.com/home', '//evil.com', '/.//evil.com', 'home'])(
+    'refuses to create handlers whose returnToDefault %j is not a path on this site',
+    (returnToDefault) => {
+      expect(() => createAuthHandlers(makeConfig({ returnToDefault }))).toThrow(/returnToDefault/);
+    },
+  );
 
   it('rejects a bad credential (401) and OTP for an address at an SSO-required domain (403)', async () => {
     const handlers = createAuthHandlers(makeConfig());
@@ -307,6 +319,21 @@ describe('createAuthHandlers — OIDC end-to-end', () => {
       req('GET', 'https://app.test/auth/session', { cookie: `pn_session=${sessionToken}` }),
     );
     expect(await session.json()).toMatchObject({ authenticated: true, userId: db.ids.users.bob });
+  });
+
+  it('start leaves an unsafe returnTo out of the login state it signs', async () => {
+    const handlers = createAuthHandlers(configWithOidc());
+    for (const evil of ['//evil.com', '/\t/evil.com', '/.//evil.com']) {
+      const start = await handlers.oidcStart(
+        req(
+          'GET',
+          `https://app.test/auth/oidc/start?authDomainId=${authDomainId}&returnTo=${encodeURIComponent(evil)}`,
+        ),
+      );
+      expect(start.status).toBe(302);
+      const login = await verifyLoginState(setCookieValue(start, 'pn_session_oidc')!, 'test-login-state-secret', 600);
+      expect(login).not.toHaveProperty('returnTo');
+    }
   });
 
   it('callback ignores an unsafe returnTo carried in a validly signed login state', async () => {

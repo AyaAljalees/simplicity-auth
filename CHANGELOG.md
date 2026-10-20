@@ -15,7 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newline, a carriage return, and dot segments such as `/.//evil.example`. The
   return address is now judged by where a browser would actually go, on code
   sign-in and on the single sign-on start and callback. A safe address is
-  passed on in that resolved form, so `/a/../dashboard` returns to `/dashboard`.
+  passed on in that resolved, percent-encoded form, so `/a/../dashboard`
+  returns to `/dashboard` and `/search?q=a b` to `/search?q=a%20b`. Code
+  sign-in's response carries that form too, so don't expect it to match the
+  `returnTo` you sent character for character.
+- **`returnToDefault` must be a path on your own site.** It is where users land
+  when there's no safe return address, and it was never checked, so a value
+  such as `//login.example` or an absolute URL sent every one of those users
+  off-site. `createAuthHandlers` now throws if `returnToDefault` would leave
+  the site.
 
 ## [10.0.0] - 2026-10-19
 
