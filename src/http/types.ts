@@ -45,6 +45,10 @@ export interface AuthHttpConfig {
   tenantSlugFromRequest: (request: Request) => string | null | Promise<string | null>;
   /** Where to send the browser after sign-in when no safe `returnTo` is supplied. Defaults to `'/'`. Must be a path on this site; `createAuthHandlers` throws otherwise. */
   returnToDefault?: string;
+  /** Where to send the browser when an OIDC sign-in fails at start or callback, with the
+   *  error code appended as `?error=<CODE>`. Must be a path on this site;
+   *  `createAuthHandlers` throws otherwise. Omit it to answer those failures with JSON. */
+  signInErrorPath?: string;
   /** The user-bound OTP handler (e.g. `twilioVerifyHandler`). Omit for SSO-only. */
   otpHandler?: MethodHandler;
   /** The org-bound OIDC handler (`oidcHandler` from `@smplcty/auth/oidc`). Omit if the app has no OIDC. */

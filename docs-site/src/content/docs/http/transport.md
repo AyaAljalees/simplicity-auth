@@ -173,6 +173,7 @@ const data = await withRequestSession(request, config, async (client, ctx) => {
 | `sessionTtl` | | Session lifetime, a Postgres interval. Default `'30 days'`. |
 | `loginStateTtlSeconds` | | OIDC login-state cookie lifetime. Default `600`. |
 | `returnToDefault` | | Post-sign-in redirect when no safe `returnTo` is given. Default `'/'`. |
+| `signInErrorPath` | | Where a failed OIDC start or callback sends the browser, with `?error=<CODE>` appended. Must be a path on this site. Omit to answer those failures with JSON. |
 | `sessionMeta` | | Derive IP/geo for the `sessions` row from the request. |
 | `logger` | | Passed through to `withSession`. |
 
@@ -183,7 +184,8 @@ const data = await withRequestSession(request, config, async (client, ctx) => {
   variant `/\host` (which browsers normalize to `//host`) fall back to
   `returnToDefault`.
 - **Signed login-state** — HMAC-SHA256, constant-time verify, freshness-checked;
-  a tampered or stale cookie is rejected (the callback returns `400`).
+  a tampered or stale cookie is rejected (the callback returns `400`, or redirects
+  to `signInErrorPath` with `INVALID_LOGIN_STATE` when that is set).
 - **SSO-required email domains enforced server-side**, on every sub-domain, not
   just hidden in the UI.
 - **Cookies** are `HttpOnly` + `Secure` + `SameSite=Lax`; the session token is a

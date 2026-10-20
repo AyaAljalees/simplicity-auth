@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`signInErrorPath` sends a failed OIDC sign-in to a page your app can show.**
+  The identity provider redirects the browser to the callback, so an error
+  answered as JSON became the whole page, with no way back to sign-in. With
+  `signInErrorPath: '/sign-in'`, a failure at `oidcStart` or `oidcCallback`
+  redirects to `/sign-in?error=<CODE>` (for example `EMAIL_DOMAIN_NOT_VERIFIED`
+  or `INVALID_LOGIN_STATE`) and clears the login-state cookie. Only the code is
+  sent, never the domain or tenant. The path must be on your own site, and
+  `createAuthHandlers` throws otherwise. Without it, failures are answered as
+  JSON, as before.
+- **`MethodHandler.resolveUser`**, optional: the user `complete` would resolve
+  for an identifier, without sending anything. `twilioVerifyHandler` implements
+  it.
+
+### Security
+
+- **No code is sent to someone who has to sign in with SSO.** `initiateOtp`
+  checked only the domain of what was typed, so a phone number, or an email at
+  another domain, of a user whose email is at an SSO-required domain got a real
+  code, which `completeOtp` then refused. It now reaches the same verdict before
+  sending, using the handler's `resolveUser`. It answers as it does for an
+  unknown identifier, so a phone number can't be used to learn whose it is.
+
 ## [11.0.0] - 2026-10-20
 
 ### Security

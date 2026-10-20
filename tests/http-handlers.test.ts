@@ -364,6 +364,72 @@ describe('createAuthHandlers — OIDC end-to-end', () => {
     expect(forged.status).toBe(400);
   });
 
+  describe('with a sign-in error path', () => {
+    const errorConfig = (path = '/sign-in/error') =>
+      makeConfig({ signInErrorPath: path, oidc: oidcHandler({ fetch: fetchImpl, clientSecret: () => 'mock-secret' }) });
+
+    async function callbackAs(config: AuthHttpConfig, email: string): Promise<Response> {
+      const handlers = createAuthHandlers(config);
+      const start = await handlers.oidcStart(
+        req('GET', `https://app.test/auth/oidc/start?authDomainId=${authDomainId}`),
+      );
+      const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+      const stateCookie = setCookieValue(start, 'pn_session_oidc')!;
+      const login = await verifyLoginState(stateCookie, 'test-login-state-secret', 600);
+      await signIdToken({ sub: `sub-${email}`, nonce: login!.nonce, email });
+      return handlers.oidcCallback(
+        req('GET', `https://app.test/auth/oidc/callback?code=test-code&state=${state}`, {
+          cookie: `pn_session_oidc=${stateCookie}`,
+        }),
+      );
+    }
+
+    it('sends a refused sign-in to the error path with only its code', async () => {
+      const res = await callbackAs(errorConfig(), 'bob@unverified.example');
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('/sign-in/error?error=EMAIL_DOMAIN_NOT_VERIFIED');
+      expect(setCookieValue(res, 'pn_session')).toBeFalsy();
+      const cleared = res.headers.getSetCookie().find((c) => c.startsWith('pn_session_oidc='));
+      expect(cleared).toContain('Max-Age=0');
+    });
+
+    it('sends a missing or forged login state to the error path', async () => {
+      const handlers = createAuthHandlers(errorConfig());
+      const forged = await handlers.oidcCallback(
+        req('GET', 'https://app.test/auth/oidc/callback?code=c&state=s', { cookie: 'pn_session_oidc=forged.sig' }),
+      );
+
+      expect(forged.status).toBe(302);
+      expect(forged.headers.get('location')).toBe('/sign-in/error?error=INVALID_LOGIN_STATE');
+    });
+
+    it('sends an unknown auth domain at the start to the error path', async () => {
+      const handlers = createAuthHandlers(errorConfig());
+      const res = await handlers.oidcStart(req('GET', 'https://app.test/auth/oidc/start?authDomainId=999999'));
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('/sign-in/error?error=UNKNOWN_AUTH_DOMAIN');
+    });
+
+    it("keeps the error path's own query", async () => {
+      const res = await callbackAs(errorConfig('/sign-in?view=sso'), 'bob@unverified.example');
+
+      expect(res.headers.get('location')).toBe('/sign-in?view=sso&error=EMAIL_DOMAIN_NOT_VERIFIED');
+    });
+
+    it('refuses an error path that would leave the site', () => {
+      expect(() => createAuthHandlers(errorConfig('//evil.example'))).toThrow();
+    });
+
+    it('still answers JSON when no error path is configured', async () => {
+      const res = await callbackAs(configWithOidc(), 'bob@unverified.example');
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 'EMAIL_DOMAIN_NOT_VERIFIED' });
+    });
+  });
+
   it('OIDC endpoints 404 when OIDC is not configured', async () => {
     const handlers = createAuthHandlers(makeConfig()); // no oidc
     expect((await handlers.oidcStart(req('GET', 'https://app.test/auth/oidc/start?authDomainId=1'))).status).toBe(404);
