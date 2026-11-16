@@ -148,7 +148,7 @@
   },
   "dependencies": {
     "@smplcty/db": "^4.3.0",
-    "@smplcty/schema-std": "^0.1.0",
+    "@smplcty/schema-std": "^0.2.0",
     "otplib": "^13.5.0"
   }
 }

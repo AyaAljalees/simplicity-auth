@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Depends on `@smplcty/schema-std` 0.2.0.** An app that imports auth no
+  longer carries a second, older copy of schema-std beside its own. 0.2.0 adds
+  `audit_skip_noop_generated`, the no-op skip for an audited table with a
+  stored generated column; auth's own tables have none, so nothing in auth's
+  schema changes.
+
 ## [12.2.1] - 2026-11-02
 
 ### Fixed
