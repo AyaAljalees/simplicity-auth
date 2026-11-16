@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.2.2] - 2026-11-16
+
 ### Changed
 
 - **Depends on `@smplcty/schema-std` 0.2.0.** An app that imports auth no
@@ -771,7 +773,8 @@ Baseline release. Notes for this and earlier versions are on the
 [GitHub releases page](https://github.com/mabulu-inc/simplicity-auth/releases);
 the Keep a Changelog history starts from the next release.
 
-[Unreleased]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.2.1...HEAD
+[Unreleased]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.2.2...HEAD
+[12.2.2]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.2.1...v12.2.2
 [12.2.1]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.2.0...v12.2.1
 [12.2.0]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.1.0...v12.2.0
 [12.1.0]: https://github.com/mabulu-inc/simplicity-auth/compare/v12.0.1...v12.1.0
