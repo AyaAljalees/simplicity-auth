@@ -26,6 +26,7 @@ What it enforces, which Twilio Verify would otherwise do for you:
 - At most **5 codes per address per 10 minutes**. A request over the limit sends nothing and the last code stays valid.
 - Only an **HMAC** of each code is stored (`email_sign_in_codes`), keyed by `codeSecret`, so a database read alone can't brute-force the million possible codes. Rows are kept after use, expiry or replacement.
 - Like the Twilio handler, it never provisions, reports `otpSent` for an unknown address without sending, and accepts a [dev-OTP](/simplicity-auth/methods/dev-otp/) code first, sending nothing to an enrolled user.
+- If `sendCode` throws, the router still reports `otpSent`, as it does for an unknown address, so a failing provider doesn't reveal who has an account. The failure goes to the router's `logger` without the address. Don't throw an `AuthError` from `sendCode`: it reaches the caller, and since `sendCode` runs only for an address with an account, it would reveal that the address has one.
 
 To send email codes yourself and SMS through Twilio, give `otpHandler` one
 handler per kind of identifier. One containing `@` is an email; anything else is

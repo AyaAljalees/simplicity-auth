@@ -161,6 +161,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
     db: pool,
     otpHandler: config.otpHandler,
     revealSsoRequiredUsers: config.revealSsoRequiredUsers,
+    logger: config.logger,
   });
   const sessionTtl = config.sessionTtl ?? DEFAULT_SESSION_TTL;
   const loginStateTtl = config.loginStateTtlSeconds ?? DEFAULT_LOGIN_STATE_TTL;

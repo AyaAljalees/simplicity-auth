@@ -4,6 +4,7 @@ import { createAuthHandlers } from '../src/http/index.js';
 import type { AuthHttpConfig } from '../src/http/index.js';
 import { signLoginState, verifyLoginState } from '../src/http/cookies.js';
 import { oidcHandler } from '../src/methods/oidc/index.js';
+import { emailCodeHandler } from '../src/methods/email-code/index.js';
 import { SignInRefusedError, VerificationFailedError } from '../src/index.js';
 import type { MethodHandler, ResolvedUser } from '../src/index.js';
 import type { SignInMethod } from '../src/http/index.js';
@@ -873,5 +874,40 @@ describe('createAuthHandlers — one code handler per identifier kind (#26)', ()
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 'OTP_NOT_ALLOWED' });
     expect(((await options.json()) as OptionsBody).otpAllowed).toBe(true);
+  });
+});
+
+describe('createAuthHandlers — otpInitiate when the send fails (#36)', () => {
+  const failingEmail = () =>
+    emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => {
+        throw Object.assign(new Error(`Email address is not verified: ${to}`), { name: 'MessageRejected' });
+      },
+    });
+
+  async function initiate(handlers: ReturnType<typeof createAuthHandlers>, identifier: string) {
+    const res = await handlers.otpInitiate(req('POST', 'http://localhost/auth/otp/initiate', { body: { identifier } }));
+    return { status: res.status, body: await res.text() };
+  }
+
+  it('answers a registered contact exactly as a stranger, and tells the logger without the address', async () => {
+    const logged: string[] = [];
+    const record = (data: Record<string, unknown>, msg: string) => void logged.push(JSON.stringify({ data, msg }));
+    const handlers = createAuthHandlers(
+      makeConfig({
+        tenantSlugFromRequest: () => null,
+        otpHandler: failingEmail(),
+        logger: { debug: record, info: record, warn: record, error: record },
+      }),
+    );
+
+    const known = await initiate(handlers, 'bob@globex.com');
+    const stranger = await initiate(handlers, 'nobody-36@globex.com');
+
+    expect(known).toEqual({ status: 200, body: JSON.stringify({ otpSent: true }) });
+    expect(known).toEqual(stranger);
+    expect(logged.join('\n')).toMatch(/MessageRejected/);
+    expect(logged.join('\n')).not.toContain('bob@globex.com');
   });
 });

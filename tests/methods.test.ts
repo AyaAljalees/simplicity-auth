@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMethodRouter, InvalidInputError, OtpNotAllowedError, VerificationFailedError } from '../src/index.js';
-import type { MethodHandler, ResolvedUser } from '../src/index.js';
+import type { Logger, MethodHandler, ResolvedUser } from '../src/index.js';
+import { emailCodeHandler } from '../src/methods/email-code/index.js';
 import { twilioVerifyHandler } from '../src/methods/twilio/index.js';
 import { startTestDb, type TestDb } from './helpers/test-db.js';
 
@@ -137,5 +138,180 @@ describe('twilioVerifyHandler via router.completeOtp', () => {
     await expect(router.completeOtp({ identifier: 'alice@acme.com', credential: '000000' })).rejects.toBeInstanceOf(
       VerificationFailedError,
     );
+  });
+});
+
+describe('createMethodRouter — a failed send answers as for an unknown identifier (#36)', () => {
+  let db: TestDb;
+  beforeAll(async () => {
+    db = await startTestDb();
+    stubUser = { userId: db.ids.users.bob, userCommunicationMethodId: db.ids.ucm.bob };
+  });
+  afterAll(async () => {
+    await db.shutdown();
+  });
+  // The email handler stops sending after EMAIL_CODE_MAX_SENDS in the window, so each test starts with an empty one.
+  beforeEach(async () => {
+    await db.pool.query(
+      `UPDATE email_sign_in_codes SET created_at = created_at - interval '1 day', superseded_at = now()`,
+    );
+  });
+
+  const KNOWN = 'bob@globex.com';
+  const STRANGER = 'nobody-36@globex.com';
+
+  function recordingLogger(): Logger & { entries: { data: Record<string, unknown>; msg: string }[] } {
+    const entries: { data: Record<string, unknown>; msg: string }[] = [];
+    const record = (data: Record<string, unknown>, msg: string) => void entries.push({ data, msg });
+    return { entries, debug: record, info: record, warn: record, error: record };
+  }
+
+  const failingEmail = () =>
+    emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => {
+        throw Object.assign(new Error(`Email address is not verified: ${to}`), { name: 'MessageRejected' });
+      },
+    });
+
+  const failingTwilio = () =>
+    twilioVerifyHandler({
+      client: {
+        sendVerificationCode: async () => {
+          throw new TypeError('fetch failed');
+        },
+        verifyVerificationCode: async () => false,
+      },
+    });
+
+  for (const [name, handler] of [
+    ['email code', failingEmail],
+    ['Twilio Verify', failingTwilio],
+  ] as const) {
+    it(`${name}: a registered contact gets the same answer as a stranger`, async () => {
+      const router = createMethodRouter({ db: db.pool, otpHandler: handler() });
+      const known = await router.initiateOtp({ identifier: KNOWN }).catch((err: unknown) => err);
+      const stranger = await router.initiateOtp({ identifier: STRANGER }).catch((err: unknown) => err);
+      expect(known).toEqual({ otpSent: true });
+      expect(known).toEqual(stranger);
+    });
+  }
+
+  it('reports the failure to the logger with the kind, never the identifier', async () => {
+    const logger = recordingLogger();
+    const router = createMethodRouter({ db: db.pool, otpHandler: failingEmail(), logger });
+    await router.initiateOtp({ identifier: KNOWN });
+    expect(logger.entries).toHaveLength(1);
+    expect(logger.entries[0]?.data).toEqual({ kind: 'email', error: 'MessageRejected' });
+    expect(JSON.stringify(logger.entries)).toMatch(/MessageRejected/);
+    expect(JSON.stringify(logger.entries)).not.toContain(KNOWN);
+  });
+
+  it("keeps a handler's own refusal, which the handler means to show", async () => {
+    const refusing: MethodHandler = {
+      initiate: async () => {
+        throw new InvalidInputError('phone must be E.164');
+      },
+      complete: async () => stubUser,
+    };
+    const logger = recordingLogger();
+    const router = createMethodRouter({ db: db.pool, otpHandler: refusing, logger });
+    await expect(router.initiateOtp({ identifier: '5551234' })).rejects.toBeInstanceOf(InvalidInputError);
+    expect(logger.entries).toEqual([]);
+  });
+
+  it('a logger that throws does not bring the difference back', async () => {
+    const broken: Logger = {
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {
+        throw new Error('log transport down');
+      },
+    };
+    const router = createMethodRouter({ db: db.pool, otpHandler: failingEmail(), logger: broken });
+    expect(await router.initiateOtp({ identifier: KNOWN })).toEqual({ otpSent: true });
+  });
+
+  it("logs the error's code when it is a short token, such as a database SQLSTATE", async () => {
+    const logger = recordingLogger();
+    const dbDown = emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => {
+        throw Object.assign(new Error(`terminating connection for ${to}`), { name: 'error', code: '57P01' });
+      },
+    });
+    const router = createMethodRouter({ db: db.pool, otpHandler: dbDown, logger });
+    await router.initiateOtp({ identifier: KNOWN });
+    expect(logger.entries[0]?.data).toEqual({ kind: 'email', error: 'error', code: '57P01' });
+  });
+
+  it("leaves out a code that isn't a short token, since it could carry the address", async () => {
+    const logger = recordingLogger();
+    const odd = emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => {
+        throw Object.assign(new Error('rejected'), { name: 'ProviderError', code: `rejected ${to}` });
+      },
+    });
+    const router = createMethodRouter({ db: db.pool, otpHandler: odd, logger });
+    await router.initiateOtp({ identifier: KNOWN });
+    expect(logger.entries[0]?.data).toEqual({ kind: 'email', error: 'ProviderError' });
+  });
+
+  it('leaves out a code shaped like a phone number', async () => {
+    const logger = recordingLogger();
+    const phoneCode = emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async () => {
+        throw Object.assign(new Error('rejected'), { name: 'ProviderError', code: '15551234567' });
+      },
+    });
+    const router = createMethodRouter({ db: db.pool, otpHandler: phoneCode, logger });
+    await router.initiateOtp({ identifier: KNOWN });
+    expect(logger.entries[0]?.data).toEqual({ kind: 'email', error: 'ProviderError' });
+  });
+
+  it("a database failure in the owner's SSO check, which runs only for a registered contact, answers as for a stranger", async () => {
+    // The per-user SSO lookup reads the user's email domains; fail just that query.
+    const flaky = {
+      query: (text: string, values?: unknown[]) =>
+        text.includes('substring(ucm.code')
+          ? Promise.reject(Object.assign(new Error('terminating connection'), { code: '57P01' }))
+          : db.pool.query(text, values),
+    } as unknown as typeof db.pool;
+    const logger = recordingLogger();
+    const sent: string[] = [];
+    const email = emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => void sent.push(to),
+    });
+    const router = createMethodRouter({ db: flaky, otpHandler: email, logger });
+    const known = await router.initiateOtp({ identifier: KNOWN }).catch((err: unknown) => err);
+    const stranger = await router.initiateOtp({ identifier: STRANGER }).catch((err: unknown) => err);
+    expect(known).toEqual({ otpSent: true });
+    expect(known).toEqual(stranger);
+    expect(sent).toEqual([]);
+    expect(logger.entries[0]?.data).toEqual({ kind: 'email', error: 'Error', code: '57P01' });
+  });
+
+  it('keeps an error name that could carry the address out of the log', async () => {
+    const logger = recordingLogger();
+    const named = emailCodeHandler({
+      codeSecret: 'test-email-code-secret-at-least-32-bytes',
+      sendCode: async ({ to }) => {
+        throw Object.assign(new Error('rejected'), { name: `Rejected<${to}>` });
+      },
+    });
+    const router = createMethodRouter({ db: db.pool, otpHandler: named, logger });
+    await router.initiateOtp({ identifier: KNOWN });
+    expect(logger.entries).toHaveLength(1);
+    expect(JSON.stringify(logger.entries)).not.toContain(KNOWN);
+  });
+
+  it('still refuses openly where a refusal is meant to show', async () => {
+    const router = createMethodRouter({ db: db.pool, otpHandler: { phone: failingTwilio() } });
+    await expect(router.initiateOtp({ identifier: KNOWN })).rejects.toBeInstanceOf(OtpNotAllowedError);
+    await expect(router.initiateOtp({ identifier: '' })).rejects.toBeInstanceOf(InvalidInputError);
   });
 });

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed send no longer reveals who has an account.** Both shipped handlers
+  send only to an identifier that has an account, so when delivery failed,
+  `otpInitiate` answered a registered contact with a 500 and a stranger with
+  `{ "otpSent": true }` (#36). Now, when work that runs only for a known
+  identifier (the owner's SSO check and the handler's `initiate`) fails with
+  anything other than an `AuthError`, such as a provider, network or database
+  failure, `initiateOtp` gives the status and body an unknown identifier gets.
+  - The failure goes to a new `logger` option on `MethodRouterOptions` as
+    `OTP initiate failed`, with the identifier's kind and the error's name and
+    `code`, each only when it is a short token such as `MessageRejected` or a
+    SQLSTATE. The identifier and the provider's message, which can quote it,
+    are never logged. `createAuthHandlers` passes its own `logger`; without one
+    the failure is discarded.
+  - An `AuthError` a handler throws on purpose (`InvalidInputError`, say) still
+    reaches the caller, as do the router's own refusals.
+  - A registered contact can still take longer to answer than a stranger, as it
+    did before, because the handler waits for the provider.
+
 ## [12.2.2] - 2026-11-16
 
 ### Changed

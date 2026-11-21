@@ -1,10 +1,11 @@
-import { InvalidInputError } from '../errors.js';
+import { AuthError, InvalidInputError } from '../errors.js';
 import {
   emailDomainOf,
   ssoRequiredDomain,
   ssoRequiredDomainForUser,
   tenantRequiresSso,
 } from '../internal/email-domain.js';
+import { noopLogger } from '../internal/noop-logger.js';
 import type { Queryable } from '../types.js';
 import { OtpNotAllowedError, SsoRequiredError } from './errors.js';
 import type {
@@ -21,6 +22,9 @@ import type {
 export function identifierKind(identifier: string): IdentifierKind {
   return identifier.includes('@') ? 'email' : 'phone';
 }
+
+/** An error name or code such as `MessageRejected` or a SQLSTATE (`57P01`): short, with no `@` and no run of digits long enough to be a phone number. */
+const SAFE_CODE = /^(?!.*\d{7})[A-Za-z0-9_]{1,32}$/;
 
 const SELECT_TENANT_BY_SLUG = `
   SELECT tenant_id AS "tenantId"
@@ -66,7 +70,24 @@ interface TenantRow {
 export function createMethodRouter(options: MethodRouterOptions): MethodRouter {
   const { otpHandler } = options;
   const q = options.db as Queryable;
+  const logger = options.logger ?? noopLogger;
   const otpAllowed = !!otpHandler && ('initiate' in otpHandler || !!(otpHandler.email || otpHandler.phone));
+
+  /** Logs a failed `initiate` without the identifier: a provider's message can quote it, so only a token-shaped name and code are kept. */
+  function reportInitiateFailure(identifier: string, err: unknown): void {
+    const name = err instanceof Error ? err.name : typeof err;
+    const code = (err as { code?: unknown } | null)?.code;
+    const data: Record<string, unknown> = {
+      kind: identifierKind(identifier),
+      error: SAFE_CODE.test(name) ? name : 'Error',
+    };
+    if (typeof code === 'string' && SAFE_CODE.test(code)) data.code = code;
+    try {
+      logger.error(data, 'OTP initiate failed');
+    } catch {
+      // A throwing logger must not turn the answer back into an error for known identifiers only.
+    }
+  }
 
   /** The handler for this identifier: the single one, or the one for its kind. */
   function handlerFor(identifier: string): MethodHandler {
@@ -118,10 +139,17 @@ export function createMethodRouter(options: MethodRouterOptions): MethodRouter {
       // The same verdict completeOtp reaches on the resolved user. By default it
       // answers as for an unknown identifier, so it doesn't reveal whose a phone is.
       const user = await handler.resolveUser?.({ db: options.db, identifier });
-      const ownerRequires = user ? await ssoRequiredDomainForUser(q, user.userId) : null;
-      if (ownerRequires && options.revealSsoRequiredUsers) throw new SsoRequiredError(ownerRequires);
-      if (ownerRequires) return { otpSent: true };
-      return handler.initiate({ db: options.db, identifier });
+      // From here on work runs only for a known identifier, so a failure would otherwise mark it as having an account.
+      try {
+        const ownerRequires = user ? await ssoRequiredDomainForUser(q, user.userId) : null;
+        if (ownerRequires && options.revealSsoRequiredUsers) throw new SsoRequiredError(ownerRequires);
+        if (ownerRequires) return { otpSent: true };
+        return await handler.initiate({ db: options.db, identifier });
+      } catch (err) {
+        if (err instanceof AuthError) throw err;
+        reportInitiateFailure(identifier, err);
+        return { otpSent: true };
+      }
     },
 
     async completeOtp({ identifier, credential }): Promise<ResolvedUser> {

@@ -1,4 +1,4 @@
-import type { Queryable } from '../types.js';
+import type { Logger, Queryable } from '../types.js';
 
 /**
  * An `auth_domains` row — one of a tenant's org-bound sign-in IdPs. A tenant
@@ -94,6 +94,10 @@ export interface MethodRouterOptions {
    *  answers as for an unknown identifier, because refusing reveals that the
    *  identifier belongs to someone who must use SSO. */
   revealSsoRequiredUsers?: boolean;
+  /** Told when a handler's `initiate` fails with anything but an `AuthError`.
+   *  The caller then gets the answer an unknown identifier gets, so a failing
+   *  provider doesn't reveal who has an account. The identifier is never logged. */
+  logger?: Logger;
 }
 
 /**
@@ -129,7 +133,10 @@ export interface MethodRouter {
   /** User-bound (OTP) phase 1. Throws {@link OtpNotAllowedError} when no OTP
    *  handler is configured, {@link SsoRequiredError} for an address at an
    *  SSO-required verified domain, and with `revealSsoRequiredUsers` for any
-   *  identifier whose owner has one. */
+   *  identifier whose owner has one. Once the identifier is resolved, an
+   *  `AuthError` is rethrown, and any other failure (in the owner's SSO check or
+   *  the handler's `initiate`) is reported to `logger` and answered as an
+   *  unknown identifier is. */
   initiateOtp(input: { identifier: string }): Promise<MethodInitiateResult>;
   /** User-bound (OTP) phase 2. Throws {@link OtpNotAllowedError} when no OTP
    *  handler is configured, {@link SsoRequiredError} when the signed-in user has
