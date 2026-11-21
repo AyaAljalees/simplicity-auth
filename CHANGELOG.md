@@ -7,25 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sign-in screens can now say when codes aren't working.** When the email or
+  SMS provider can't send to anyone, code sign-in answers `503
+DELIVERY_UNAVAILABLE` with a `Retry-After` header, so the page can say "try
+  again shortly" instead of promising a code that won't arrive. Everyone gets the
+  same answer for a minute, whether they have an account or not. The Twilio
+  handler does this on its own with `@smplcty/twilio` 0.2.0 or later. For email,
+  throw the new `DeliveryUnavailableError` from `sendCode`.
+- **Sign-in can now tell people there's no account.** Turn on
+  `revealUnknownIdentifiers` and an email or phone number with no account gets
+  `404 UNKNOWN_IDENTIFIER`, so an invite-only app can say "ask your admin". A
+  failed send then gets an honest 503, too. It's off by default, because it
+  reveals who has an account: rate-limit sign-in requests per client before
+  turning it on.
+- A `logger` option on `createMethodRouter` for these failures. `createAuthHandlers`
+  passes its own.
+
+### Changed
+
+- **Apply the schema when upgrading.** `email_sign_in_codes` gains a
+  `delivery_failed_at` column, which records a code that never went out.
+
 ### Fixed
 
-- **A failed send no longer reveals who has an account.** Both shipped handlers
-  send only to an identifier that has an account, so when delivery failed,
-  `otpInitiate` answered a registered contact with a 500 and a stranger with
-  `{ "otpSent": true }` (#36). Now, when work that runs only for a known
-  identifier (the owner's SSO check and the handler's `initiate`) fails with
-  anything other than an `AuthError`, such as a provider, network or database
-  failure, `initiateOtp` gives the status and body an unknown identifier gets.
-  - The failure goes to a new `logger` option on `MethodRouterOptions` as
-    `OTP initiate failed`, with the identifier's kind and the error's name and
-    `code`, each only when it is a short token such as `MessageRejected` or a
-    SQLSTATE. The identifier and the provider's message, which can quote it,
-    are never logged. `createAuthHandlers` passes its own `logger`; without one
-    the failure is discarded.
-  - An `AuthError` a handler throws on purpose (`InvalidInputError`, say) still
-    reaches the caller, as do the router's own refusals.
-  - A registered contact can still take longer to answer than a stranger, as it
-    did before, because the handler waits for the provider.
+- **A failed send no longer reveals who has an account.** When delivery failed,
+  someone with an account got a 500 while a stranger was told a code was sent.
+  Now a failure about one recipient, or any other unexpected error, gets the same
+  answer a stranger gets, and is logged (#36).
+- **A failed email send no longer cancels the code the person already has**, and
+  no longer counts toward the five-codes-per-10-minutes limit.
+- **Code sign-in failures are never silently dropped.** Without a logger, they
+  now go to the console. Logs include a short error name and the provider's
+  error code (numeric codes such as Twilio's too), never the email address,
+  phone number or the provider's message.
 
 ## [12.2.2] - 2026-11-16
 

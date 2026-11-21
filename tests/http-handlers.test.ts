@@ -1,11 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as jose from 'jose';
 import { createAuthHandlers } from '../src/http/index.js';
 import type { AuthHttpConfig } from '../src/http/index.js';
 import { signLoginState, verifyLoginState } from '../src/http/cookies.js';
 import { oidcHandler } from '../src/methods/oidc/index.js';
 import { emailCodeHandler } from '../src/methods/email-code/index.js';
-import { SignInRefusedError, VerificationFailedError } from '../src/index.js';
+import {
+  DeliveryUnavailableError,
+  OTP_OUTAGE_WINDOW_SECONDS,
+  SignInRefusedError,
+  VerificationFailedError,
+} from '../src/index.js';
 import type { MethodHandler, ResolvedUser } from '../src/index.js';
 import type { SignInMethod } from '../src/http/index.js';
 import { seedVerifiedDomain } from './helpers/email-domains.js';
@@ -878,6 +883,55 @@ describe('createAuthHandlers — one code handler per identifier kind (#26)', ()
 });
 
 describe('createAuthHandlers — otpInitiate when the send fails (#36)', () => {
+  // The email handler stops sending after five codes per window, so each test starts with an empty one.
+  beforeEach(async () => {
+    await db.pool.query(
+      `UPDATE email_sign_in_codes SET created_at = created_at - interval '1 day', superseded_at = now()`,
+    );
+  });
+  const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+  it('answers an outage with 503 and Retry-After, for a stranger too', async () => {
+    const handlers = createAuthHandlers(
+      makeConfig({
+        tenantSlugFromRequest: () => null,
+        logger: silent,
+        otpHandler: emailCodeHandler({
+          codeSecret: 'test-email-code-secret-at-least-32-bytes',
+          sendCode: async () => {
+            throw new DeliveryUnavailableError();
+          },
+        }),
+      }),
+    );
+    for (const identifier of ['bob@globex.com', 'nobody-36@globex.com']) {
+      const res = await handlers.otpInitiate(
+        req('POST', 'http://localhost/auth/otp/initiate', { body: { identifier } }),
+      );
+      expect(res.status).toBe(503);
+      expect(res.headers.get('retry-after')).toBe(String(OTP_OUTAGE_WINDOW_SECONDS));
+      expect(((await res.json()) as { code: string }).code).toBe('DELIVERY_UNAVAILABLE');
+    }
+  });
+
+  it('with revealUnknownIdentifiers, answers an unknown identifier with 404', async () => {
+    const handlers = createAuthHandlers(
+      makeConfig({
+        tenantSlugFromRequest: () => null,
+        revealUnknownIdentifiers: true,
+        otpHandler: emailCodeHandler({
+          codeSecret: 'test-email-code-secret-at-least-32-bytes',
+          sendCode: async () => {},
+        }),
+      }),
+    );
+    const res = await handlers.otpInitiate(
+      req('POST', 'http://localhost/auth/otp/initiate', { body: { identifier: 'nobody-36@globex.com' } }),
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe('UNKNOWN_IDENTIFIER');
+  });
+
   const failingEmail = () =>
     emailCodeHandler({
       codeSecret: 'test-email-code-secret-at-least-32-bytes',

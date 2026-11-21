@@ -152,6 +152,55 @@ describe('emailCodeHandler', () => {
     expect(sent).toHaveLength(6);
   });
 
+  describe('when sendCode fails (#36)', () => {
+    /** A router whose sendCode throws while `failing` is true. Logging is silenced. */
+    let failing = false;
+    const flaky = () =>
+      createMethodRouter({
+        db: privileged,
+        logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+        otpHandler: emailCodeHandler({
+          codeSecret: SECRET,
+          sendCode: async (message) => {
+            if (failing) throw new Error('MessageRejected');
+            sent.push(message);
+          },
+        }),
+      });
+    beforeEach(() => {
+      failing = false;
+    });
+
+    it('keeps the code the person already has', async () => {
+      await flaky().initiateOtp({ identifier: 'alice@acme.com' });
+      const working = sent.at(-1)!.code;
+
+      failing = true;
+      await flaky().initiateOtp({ identifier: 'alice@acme.com' });
+
+      await expect(signIn('alice@acme.com', working)).resolves.toMatchObject({ userId: db.ids.users.alice });
+    });
+
+    it('does not count a failed send toward the five-per-window limit', async () => {
+      failing = true;
+      for (let i = 0; i < 5; i++) await flaky().initiateOtp({ identifier: 'alice@acme.com' });
+      failing = false;
+      await flaky().initiateOtp({ identifier: 'alice@acme.com' });
+      expect(sent).toHaveLength(1);
+    });
+
+    it('keeps a record of the code that never went out, which no one can use', async () => {
+      failing = true;
+      await flaky().initiateOtp({ identifier: 'alice@acme.com' });
+      const { rows } = await db.pool.query(
+        `SELECT delivery_failed_at IS NOT NULL AS failed, superseded_at IS NOT NULL AS dead
+         FROM email_sign_in_codes WHERE user_communication_method_id = $1 AND created_at > now() - interval '1 minute'`,
+        [db.ids.ucm.alice],
+      );
+      expect(rows).toEqual([{ failed: true, dead: true }]);
+    });
+  });
+
   it('stores neither the code nor a plain hash of it', async () => {
     const code = await requestCode('alice@acme.com');
     const { rows } = await db.pool.query<{ row: string }>(

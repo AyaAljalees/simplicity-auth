@@ -61,6 +61,10 @@ export interface AuthHttpConfig {
   /** Refuse a phone, or an address at another domain, whose owner must use SSO, as
    *  `403 SSO_REQUIRED` instead of a silent "code sent". See `MethodRouterOptions`. */
   revealSsoRequiredUsers?: boolean;
+  /** Answer an email or phone that no account uses as `404 UNKNOWN_IDENTIFIER`, and a
+   *  failed send as `503 DELIVERY_UNAVAILABLE`, instead of a silent "code sent".
+   *  Rate-limit `otp/initiate` per client before turning this on. See `MethodRouterOptions`. */
+  revealUnknownIdentifiers?: boolean;
   /** The app's own rules around a sign-in. See {@link SignInHooks}. */
   signIn?: SignInHooks;
   /** The org-bound OIDC handler (`oidcHandler` from `@smplcty/auth/oidc`). Omit if the app has no OIDC. */

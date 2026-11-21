@@ -52,6 +52,50 @@ const { redirectUrl, loginState } = await oidc.initiate(authDomain);
 const user2 = await oidc.complete({ db: pool, authDomain, callbackUrl, loginState });
 ```
 
+## When a code can't be sent
+
+By default the OTP path doesn't reveal who has an account. An unknown email or
+phone gets `{ otpSent: true }` with nothing sent, so the page should say
+*"If there's an account for this address, we've sent a code"*, with a resend
+countdown and a "Try another way" link. `otpSent` means accepted, not delivered.
+
+What happens when delivery fails depends on why:
+
+- **The provider can't send to anyone** (it's down, its credentials are wrong,
+  an account-wide rate limit). A handler reports this by throwing
+  `DeliveryUnavailableError`: the Twilio handler does so on its own with
+  `@smplcty/twilio` 0.2.0 or later, and an email `sendCode` does so by throwing
+  it. For the next `OTP_OUTAGE_WINDOW_SECONDS` (60), every identifier of that
+  kind, account or not, gets `DeliveryUnavailableError` (HTTP `503
+  DELIVERY_UNAVAILABLE` with `Retry-After`), so the page can say "try again
+  shortly". Sends and checks have separate windows, so an email outage doesn't
+  stop people using codes they already have.
+- **The provider refused this one recipient** (an invalid or blocked number, a
+  rejected address), or anything else failed. That is answered as for an
+  unknown identifier and logged.
+
+The compromise: the request that opens an outage window always belongs to an
+account holder, so during an outage an attacker can learn about roughly one
+identifier per window, per server process.
+
+Failures are logged with the identifier's kind and a short error name and code,
+never the identifier or the provider's message. Without a `logger`, they go to
+the console, so an outage is never silent.
+
+### Revealing unknown identifiers
+
+For an invite-only app, the most helpful answer is often "There's no account for
+this email. Ask your admin." Pass `revealUnknownIdentifiers: true` to
+`createMethodRouter` (or `createAuthHandlers`). An unknown identifier then gets
+`UnknownIdentifierError` (HTTP `404 UNKNOWN_IDENTIFIER`), and any failed send
+gets `DeliveryUnavailableError`, with no outage window, since there is nothing
+left to hide.
+
+Rate-limit `otp/initiate` per client (in the app, or at its edge or firewall)
+before turning this on: the library has no notion of the client, and without a
+limit the answer can be scraped for every address you try. It needs a handler
+with `resolveUser`, which both shipped handlers have.
+
 Either path yields a `{ userId, userCommunicationMethodId }`; hand it to
 [`createSession`](/simplicity-auth/sessions/lifecycle/).
 

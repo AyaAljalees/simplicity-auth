@@ -12,10 +12,12 @@ import {
   SessionNotFoundError,
 } from '../errors.js';
 import {
+  DeliveryUnavailableError,
   EmailDomainNotVerifiedError,
   OtpNotAllowedError,
   SignInRefusedError,
   SsoRequiredError,
+  UnknownIdentifierError,
   VerificationFailedError,
 } from '../methods/errors.js';
 import type { AuthDomain, ResolvedUser } from '../methods/types.js';
@@ -116,6 +118,12 @@ function toErrorResponse(err: unknown): Response {
     return json({ error: 'This organization has not verified that email domain', code: err.code }, 403);
   }
   if (err instanceof VerificationFailedError) return json({ error: 'Verification failed', code: err.code }, 401);
+  if (err instanceof UnknownIdentifierError) return json({ error: err.message, code: err.code }, 404);
+  if (err instanceof DeliveryUnavailableError) {
+    const res = json({ error: "Sign-in codes aren't working right now. Try again shortly.", code: err.code }, 503);
+    if (err.retryAfterSeconds !== undefined) res.headers.set('retry-after', String(err.retryAfterSeconds));
+    return res;
+  }
   if (err instanceof SignInRefusedError) return json({ error: err.message, code: err.code }, 403);
   if (err instanceof RoleNotHeldError) return json({ error: 'Role not held', code: err.code }, 403);
   if (err instanceof SessionExpiredError) return json({ error: 'Session expired', code: err.code }, 401);
@@ -161,6 +169,7 @@ export function createAuthHandlers(config: AuthHttpConfig): AuthHandlers {
     db: pool,
     otpHandler: config.otpHandler,
     revealSsoRequiredUsers: config.revealSsoRequiredUsers,
+    revealUnknownIdentifiers: config.revealUnknownIdentifiers,
     logger: config.logger,
   });
   const sessionTtl = config.sessionTtl ?? DEFAULT_SESSION_TTL;

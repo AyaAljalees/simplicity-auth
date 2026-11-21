@@ -330,6 +330,9 @@ It exposes `GET …/sign-in/options`, `POST …/otp/initiate`, `POST …/otp/com
 `GET …/session`, plus `getSessionToken` / `withRequestSession` for authenticating
 every other request. `returnTo` is open-redirect-guarded, SSO-required email domains are
 enforced server-side, and the OIDC login-state cookie is HMAC-signed and freshness-checked.
+When codes can't be sent at all, `otp/initiate` and `otp/complete` answer `503
+DELIVERY_UNAVAILABLE` with `Retry-After`, for every identifier alike (see
+[When a code can't be sent](https://mabulu-inc.github.io/simplicity-auth/methods/overview/#when-a-code-cant-be-sent)).
 
 Full reference: **[HTTP transport](https://mabulu-inc.github.io/simplicity-auth/http/transport/)**.
 
@@ -512,7 +515,7 @@ const logger = pino();
 await withSession(pool, { token, roleName: 'user' }, fn, { logger });
 ```
 
-Pass one to `createMethodRouter({ logger })` too (`createAuthHandlers` passes its own): a code that fails to send is answered as for an unknown identifier, so the log is the only place the failure shows.
+Pass one to `createMethodRouter({ logger })` too (`createAuthHandlers` passes its own). A code that fails to send for one recipient is answered as for an unknown identifier, so the log is the only place that failure shows. Without a logger, the router writes these failures to the console rather than dropping them.
 
 The `Logger` interface matches pino's `(data, msg)` shape. The library never logs the raw token or PII — only structural events with safe identifiers (a hash fingerprint, `userId`, role).
 

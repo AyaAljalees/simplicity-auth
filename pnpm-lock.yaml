@@ -28,8 +28,8 @@ importers:
         specifier: ^0.26.0
         version: 0.26.0
       '@smplcty/twilio':
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.2.0
+        version: 0.2.0
       '@testcontainers/postgresql':
         specifier: ^12.2.1
         version: 12.2.1
@@ -684,8 +684,8 @@ packages:
     resolution: {integrity: sha512-VKyynYAJA10Pmmv5KJXMsaOztTm8k7vi7MCzHOaZYt1FzMvW6vmWp3SHoKMIxQjA/1aFbh+J7iU2jBhjUYemyg==}
     engines: {node: '>=20'}
 
-  '@smplcty/twilio@0.1.1':
-    resolution: {integrity: sha512-tSLOlFPmvo3SpouYwNu8XdQwbaWqCFZWFbXUn/lNZojtxr0hNKVmv2pXGS+12uRS124QBz/5DVIcCP62ZtMCHQ==}
+  '@smplcty/twilio@0.2.0':
+    resolution: {integrity: sha512-/VqOq6lpZkdiJfOfTpUxCklMUreR5l/7tz2QU0LikPTH0tqI5ceVeTIkzO2B7bwffGgEX+v3CUvDb53BV12YYQ==}
     engines: {node: '>=20'}
 
   '@testcontainers/postgresql@12.2.1':
@@ -2697,7 +2697,7 @@ snapshots:
 
   '@smplcty/schema-std@0.2.0': {}
 
-  '@smplcty/twilio@0.1.1': {}
+  '@smplcty/twilio@0.2.0': {}
 
   '@testcontainers/postgresql@12.2.1':
     dependencies:

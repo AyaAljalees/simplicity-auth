@@ -85,3 +85,42 @@ export class SignInRefusedError extends AuthError {
     this.code = code;
   }
 }
+
+/**
+ * Thrown when sign-in codes can't be sent or checked right now: the provider
+ * is down, its credentials are wrong, or the like. It is honest to tell the
+ * person to try again shortly, so the HTTP tier answers it with a 503.
+ *
+ * A handler throws it for a failure that would hit any recipient. The router
+ * then answers every identifier of that kind with it, account or not, for
+ * {@link OTP_OUTAGE_WINDOW_SECONDS}, so the answer doesn't reveal who has an
+ * account. An app's `sendCode` can throw it to mark a provider error as an
+ * outage. A failure about one recipient must not be this error.
+ */
+export class DeliveryUnavailableError extends AuthError {
+  override readonly name = 'DeliveryUnavailableError';
+  override readonly code = 'DELIVERY_UNAVAILABLE' as const;
+  /** How long until it's worth trying again, when the router knows. */
+  readonly retryAfterSeconds?: number;
+
+  constructor(
+    message: string = "Sign-in codes can't be sent or checked right now",
+    options: { cause?: unknown; retryAfterSeconds?: number } = {},
+  ) {
+    super(message, { cause: options.cause });
+    if (options.retryAfterSeconds !== undefined) this.retryAfterSeconds = options.retryAfterSeconds;
+  }
+}
+
+/**
+ * Thrown by the router's OTP path, only with `revealUnknownIdentifiers`, for an
+ * email address or phone number that no account uses, so the page can say so.
+ */
+export class UnknownIdentifierError extends AuthError {
+  override readonly name = 'UnknownIdentifierError';
+  override readonly code = 'UNKNOWN_IDENTIFIER' as const;
+
+  constructor(message: string = 'No account uses that email address or phone number') {
+    super(message);
+  }
+}

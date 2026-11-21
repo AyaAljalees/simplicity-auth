@@ -36,12 +36,15 @@ export interface EmailCodeHandlerOptions {
 
 // Issues a code only while the address is under the send limit, retiring the
 // previous live code in the same statement so a refused send keeps it alive.
+// Returns the new code's id and the ids it retired, so a failed delivery can
+// be undone with UNDO_ISSUE.
 const ISSUE_CODE = `
   WITH allowed AS (
     SELECT count(*) < $4 AS ok
     FROM email_sign_in_codes
     WHERE user_communication_method_id = $1
       AND created_at > now() - make_interval(mins => $3)
+      AND delivery_failed_at IS NULL
   ),
   superseded AS (
     UPDATE email_sign_in_codes
@@ -50,11 +53,26 @@ const ISSUE_CODE = `
       AND used_at IS NULL
       AND superseded_at IS NULL
       AND (SELECT ok FROM allowed)
+    RETURNING email_sign_in_code_id
   )
   INSERT INTO email_sign_in_codes (user_communication_method_id, code_hash, expires_at)
   SELECT $1, $2, now() + make_interval(mins => $3)
   WHERE (SELECT ok FROM allowed)
-  RETURNING email_sign_in_code_id
+  RETURNING
+    email_sign_in_code_id AS "id",
+    (SELECT coalesce(array_agg(email_sign_in_code_id), '{}') FROM superseded) AS "retiredIds"
+`;
+
+// Undoes ISSUE_CODE after a failed delivery: the code nobody received is
+// marked dead and stops counting toward the send limit (the row stays, as the
+// record of the attempt), and the codes it retired are live again.
+const UNDO_ISSUE = `
+  UPDATE email_sign_in_codes
+  SET
+    delivery_failed_at = CASE WHEN email_sign_in_code_id = $1 THEN now() ELSE delivery_failed_at END,
+    superseded_at = CASE WHEN email_sign_in_code_id = $1 THEN now() ELSE NULL END
+  WHERE email_sign_in_code_id = $1
+     OR email_sign_in_code_id = ANY($2::bigint[])
 `;
 
 const LIVE_CODE = `
@@ -145,14 +163,21 @@ export function emailCodeHandler(options: EmailCodeHandlerOptions): MethodHandle
       }
 
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-      const { rowCount } = await ctx.db.query(ISSUE_CODE, [
+      const { rows } = await ctx.db.query<{ id: string; retiredIds: string[] }>(ISSUE_CODE, [
         user.userCommunicationMethodId,
         hashCode(user.userCommunicationMethodId, code).toString('hex'),
         EMAIL_CODE_TTL_MINUTES,
         EMAIL_CODE_MAX_SENDS,
       ]);
-      if (rowCount) {
-        await sendCode({ to: identifier, code });
+      const issued = rows[0];
+      if (issued) {
+        try {
+          await sendCode({ to: identifier, code });
+        } catch (err) {
+          // The person never got this code, so they keep the one they had.
+          await ctx.db.query(UNDO_ISSUE, [issued.id, issued.retiredIds]);
+          throw err;
+        }
       }
       return { otpSent: true };
     },

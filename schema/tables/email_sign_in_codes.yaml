@@ -35,5 +35,9 @@ columns:
     type: timestamptz
   - name: superseded_at
     type: timestamptz
+  # Set when sendCode threw: nobody received this code, so it is dead and
+  # doesn't count toward the send limit.
+  - name: delivery_failed_at
+    type: timestamptz
 indexes:
   - columns: [user_communication_method_id, created_at]

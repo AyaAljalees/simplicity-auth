@@ -54,12 +54,14 @@ export {
 } from './set-helpers.js';
 
 // Authentication methods — pluggable two-phase handlers + auth_domains router.
-export { createMethodRouter } from './methods/router.js';
+export { createMethodRouter, OTP_OUTAGE_WINDOW_SECONDS } from './methods/router.js';
 export {
+  DeliveryUnavailableError,
   EmailDomainNotVerifiedError,
   OtpNotAllowedError,
   SignInRefusedError,
   SsoRequiredError,
+  UnknownIdentifierError,
   VerificationFailedError,
 } from './methods/errors.js';
 export type {

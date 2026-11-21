@@ -2,7 +2,7 @@ import type { TwilioVerifyClient, VerificationChannel } from '@smplcty/twilio';
 import { InvalidInputError } from '../../errors.js';
 import { findUserByCommunicationMethod } from '../../find-user-by-communication-method.js';
 import { verifyDevOtp, isDevOtpEnrolled } from '../../dev-otp.js';
-import { VerificationFailedError } from '../errors.js';
+import { DeliveryUnavailableError, VerificationFailedError } from '../errors.js';
 import type {
   MethodCompleteContext,
   MethodHandler,
@@ -47,6 +47,22 @@ function requireIdentifier(identifier: string | undefined): string {
 }
 
 /**
+ * Runs a Twilio call, turning `@smplcty/twilio`'s outage error (0.2.0 and later)
+ * into {@link DeliveryUnavailableError}. Matched by `code`, not `instanceof`,
+ * because the peer is optional and 0.1.x has no such class.
+ */
+async function callTwilio<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === 'TWILIO_UNAVAILABLE') {
+      throw new DeliveryUnavailableError(undefined, { cause: err });
+    }
+    throw err;
+  }
+}
+
+/**
  * The user-bound Twilio Verify method handler (opt-in subpath
  * `@smplcty/auth/twilio`). Phase 1 sends an OTP (skipping the send for
  * dev-OTP-enrolled users); phase 2 verifies the submitted code — dev-OTP
@@ -56,6 +72,12 @@ function requireIdentifier(identifier: string | undefined): string {
  * `user_communication_methods` row for the identifier. To avoid a
  * user-enumeration oracle, `initiate` reports `otpSent` even for an unknown
  * identifier (it just doesn't send); `complete` fails verification.
+ *
+ * With `@smplcty/twilio` 0.2.0 or later, a Twilio outage (network failure, bad
+ * credentials, a 5xx, an account-wide rate limit) is thrown as
+ * {@link DeliveryUnavailableError}, which the router answers honestly for every
+ * phone number alike. With 0.1.x, every Twilio refusal looks like one about the
+ * number, so an outage is answered as "code sent".
  *
  * Drives `@smplcty/twilio` (an **optional peer**); auth core depends on
  * neither it nor `jose`. Install the peer and pass a client:
@@ -95,7 +117,9 @@ export function twilioVerifyHandler(options: TwilioVerifyHandlerOptions): Method
         return { otpSent: true };
       }
 
-      await client.sendVerificationCode({ channel: verifyChannel, to: identifier });
+      // `false` is Twilio refusing this one number (invalid, blocked, too many
+      // attempts): answered as for an unknown identifier, so it isn't revealed.
+      await callTwilio(() => client.sendVerificationCode({ channel: verifyChannel, to: identifier }));
       return { otpSent: true };
     },
 
@@ -109,7 +133,8 @@ export function twilioVerifyHandler(options: TwilioVerifyHandlerOptions): Method
 
       // Dev-OTP first (authenticator-app code), then Twilio Verify.
       const okDev = await verifyDevOtp(ctx.db, user.userCommunicationMethodId, ctx.credential);
-      const ok = okDev || (await client.verifyVerificationCode({ to: identifier, code: ctx.credential }));
+      const ok =
+        okDev || (await callTwilio(() => client.verifyVerificationCode({ to: identifier, code: ctx.credential })));
       if (!ok) {
         throw new VerificationFailedError();
       }

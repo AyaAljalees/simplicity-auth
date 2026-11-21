@@ -82,8 +82,8 @@ fall through.
 | Method & path | Purpose | Request | Response |
 | --- | --- | --- | --- |
 | `GET …/sign-in/options` | What the sign-in screen renders for this tenant. | tenant from `tenantSlugFromRequest` | `{ tenantId, otpAllowed, ssoRequired, authDomains: [{ authDomainId, displayName, integrationType }] }` |
-| `POST …/otp/initiate` | Send an OTP. | `{ identifier }` | `{ otpSent: true }` |
-| `POST …/otp/complete` | Verify an OTP, mint a session. | `{ identifier, credential, returnTo? }` | `200` + session cookie, `{ ok: true, returnTo }` |
+| `POST …/otp/initiate` | Send an OTP. | `{ identifier }` | `{ otpSent: true }`; `503 DELIVERY_UNAVAILABLE` + `Retry-After` when codes can't be sent; with `revealUnknownIdentifiers`, `404 UNKNOWN_IDENTIFIER` |
+| `POST …/otp/complete` | Verify an OTP, mint a session. | `{ identifier, credential, returnTo? }` | `200` + session cookie, `{ ok: true, returnTo }`; `503 DELIVERY_UNAVAILABLE` + `Retry-After` when codes can't be checked |
 | `GET …/oidc/start?authDomainId=&returnTo=` | Begin OIDC: redirect to the IdP. | query params | `302` to the IdP + a signed login-state cookie; on failure, `302` to `signInErrorPath` if set |
 | `GET …/oidc/callback` | Finish OIDC: verify, mint a session. | provider's `?code&state` + login-state cookie | `302` to `returnTo` + session cookie; on failure, `302` to `signInErrorPath` if set |
 | `POST …/sign-out` | Revoke the session, clear the cookie. | session cookie / bearer | `200` + cleared cookie |
@@ -234,7 +234,7 @@ const data = await withRequestSession(request, config, async (client, ctx) => {
 - **Cookies** are `HttpOnly` + `Secure` + `SameSite=Lax`; the session token is a
   256-bit opaque value whose hash is all that's stored.
 - **Error mapping is opaque** — handlers map known auth errors to status codes
-  (`400`/`401`/`403`) with generic messages and never leak internals (unknown
+  (`400`/`401`/`403`/`404`/`503`) with generic messages and never leak internals (unknown
   errors become a bare `500`). With `signInErrorPath` set, the OIDC endpoints
   redirect there with only the error code (`SIGN_IN_FAILED` for an unknown
   error). Why it failed goes to `onSignInFailure`, for the admins, not to the person. The path's own query is re-encoded, so `?q=a%20b` arrives as `?q=a+b`.
